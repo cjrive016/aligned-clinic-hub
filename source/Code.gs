@@ -68,12 +68,13 @@ var TABLES = {
   Cleaning: ['id', 'date', 'day', 'task', 'assigned', 'assignedName', 'doneBy', 'doneByName', 'doneAt', 'offAssignment', 'late', 'comment', 'kind'],
   Meds:     ['id', 'name', 'ndc', 'lot', 'expiration', 'qty', 'location', 'notes', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'],
   Swaps:    ['id', 'date', 'task', 'fromName', 'toName', 'coverId', 'origDate', 'createdAt'],
-  Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls'],
+  Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls', 'deleted', 'deletedAt', 'deletedBy', 'editedAt'],
+  NoteComments: ['id', 'noteKey', 'text', 'byUser', 'byName', 'at'],
   QC:       ['id', 'loggedAt', 'test', 'lot', 'expiration', 'reason', 'posControl', 'negControl', 'result', 'byName', 'by', 'notes', 'voided', 'voidReason', 'voidedBy']
 };
 var KEYS = { Users: 'username' };
 var NUM_FIELDS = { qty: 1, price: 1, reorderAt: 1 };
-var BOOL_FIELDS = { paid: 1, active: 1, offAssignment: 1, late: 1, voided: 1, done: 1 };
+var BOOL_FIELDS = { paid: 1, active: 1, offAssignment: 1, late: 1, voided: 1, done: 1, deleted: 1 };
 var DATE_ONLY = { date: 1, expiration: 1 };
 
 /* =====================================================================
@@ -204,6 +205,9 @@ var ACTIONS = {
   noteDone:         { fn: a_noteDone_, write: true },
   noteDelete:       { fn: a_noteDelete_, write: true },
   noteSeen:         { fn: a_noteSeen_, write: true },
+  noteEdit:         { fn: a_noteEdit_, write: true },
+  noteComment:      { fn: a_noteComment_, write: true },
+  notePurge:        { fn: a_notePurge_, write: true, admin: true },
   medDelete:        { fn: a_medDelete_, write: true, admin: true },
 
   userAdd:          { fn: a_userAdd_, write: true, admin: true },
@@ -241,7 +245,8 @@ function a_bootstrap_(me) {
     orders: clean_(rows_('Orders')),
     qc: clean_(rows_('QC')),
     meds: clean_(rows_('Meds')),
-    notes: notesList_(),
+    notes: notesList_(me).notes,
+    noteComments: notesList_(me).noteComments,
     qcRetentionDays: CONFIG.QC_RETENTION_DAYS,
     cleaningRule: CLEANING_RULE,
     startDate: s.startDate || '',
@@ -686,13 +691,55 @@ function a_medDelete_(me, p) {
 }
 
 /* =====================================================================
-   STICKY NOTES — one wall per account; anyone can post on anyone's wall
+   STICKY NOTES
+   - You only see notes on YOUR wall and notes YOU wrote (on anyone's wall).
+   - A note posted to several walls is one note (copies share a groupId).
+   - Anyone who can see a note can comment on it; the writer can edit it.
+   - Completing or deleting a note moves it to the archive. Archived notes
+     are read-only for staff. Only admins see the whole archive and can
+     restore or permanently remove archived notes.
    ===================================================================== */
 var NOTE_COLORS = ['yellow', 'pink', 'blue', 'green'];
-function notesList_() {
-  var cutoff = new Date(Date.now() - 30 * 864e5).toISOString();
-  return clean_(rows_('Notes').filter(function (n) { return !n.done || String(n.doneAt || '') >= cutoff; }));
+function noteKey_(n) { return n.groupId || n.id; }
+function noteGroup_(n) {
+  if (!n.groupId) return [n];
+  return rows_('Notes').filter(function (x) { return x.groupId === n.groupId; });
 }
+function noteArchived_(n) { return !!(n.done || n.deleted); }
+function canSeeNote_(me, n) {
+  if (n.fromUser === me.username) return true;
+  if (noteGroup_(n).some(function (x) { return x.wall === me.username; })) return true;
+  return me.role === 'admin' && noteArchived_(n);
+}
+function notesList_(me) {
+  var list = rows_('Notes').filter(function (n) { return canSeeNote_(me, n); });
+  var keys = {};
+  list.forEach(function (n) { keys[noteKey_(n)] = true; });
+  var comments = rows_('NoteComments').filter(function (c) { return keys[c.noteKey]; });
+  return { notes: clean_(list), noteComments: clean_(comments) };
+}
+function noteOut_(me) { var o = notesList_(me); return { notes: o.notes, noteComments: o.noteComments }; }
+function mustSeeNote_(me, id) {
+  var n = find_('Notes', id);
+  if (!n || !canSeeNote_(me, n)) throw userErr_('That note was removed. Refresh the page.');
+  return n;
+}
+function noteLocked_(me, n) {
+  if (noteArchived_(n)) throw userErr_('This note is in the archive. Only an admin can change archived notes.');
+}
+function noteNotify_(me, n, subject, body) {
+  var to = {};
+  noteGroup_(n).forEach(function (x) { to[x.wall] = true; });
+  to[n.fromUser] = true;
+  delete to[me.username];
+  Object.keys(to).forEach(function (un) {
+    var u = findUser_(un);
+    if (!u || !u.active || !u.email) return;
+    try { sendMail_(u.email, subject, 'Hi ' + u.name + ',\n\n' + body + '\n\nOpen the Sticky Notes tab in the Clinic Hub to see it.'); }
+    catch (e) { console.warn('Note email failed: ' + e); }
+  });
+}
+
 function a_noteAdd_(me, p) {
   var text = str_(p.text).slice(0, 1000);
   if (!text) throw userErr_('Write something on the sticky note.');
@@ -710,49 +757,88 @@ function a_noteAdd_(me, p) {
   owners.forEach(function (owner) {
     insert_('Notes', { id: uid_(), wall: owner.username, text: text, color: color, fromUser: me.username, fromName: me.name,
       createdAt: now, seenAt: owner.username === me.username ? now : '', done: false, doneAt: '', doneBy: '',
-      groupId: groupId, walls: groupId ? wallList : '' });
+      groupId: groupId, walls: groupId ? wallList : '', deleted: false, deletedAt: '', deletedBy: '', editedAt: '' });
     if (owner.username !== me.username && owner.email) {
       var others = owners.filter(function (o) { return o.username !== owner.username; }).map(function (o) { return o.name; });
       try {
         sendMail_(owner.email, 'New sticky note from ' + me.name,
           'Hi ' + owner.name + ',\n\n' + me.name + ' left a sticky note on your wall in the Clinic Hub' +
           (others.length ? ' (also posted to ' + others.join(', ') + ')' : '') + ':\n\n"' + text + '"\n\n' +
-          'Open the Sticky Notes tab to see it and mark it done.');
+          'Open the Sticky Notes tab to see it, comment on it, or mark it done.');
       } catch (e) { console.warn('Note email failed: ' + e); }
     }
   });
-  return { notes: notesList_() };
+  return noteOut_(me);
 }
-/** A note posted to several walls is one note: its copies share a groupId. */
-function noteGroup_(n) {
-  if (!n.groupId) return [n];
-  return rows_('Notes').filter(function (x) { return x.groupId === n.groupId; });
+
+function a_noteEdit_(me, p) {
+  var n = mustSeeNote_(me, p.id);
+  noteLocked_(me, n);
+  if (n.fromUser !== me.username) throw userErr_('Only the person who wrote this note can edit it. You can add a comment instead.');
+  var text = str_(p.text).slice(0, 1000);
+  if (!text) throw userErr_('The note cannot be empty.');
+  var now = nowIso_();
+  noteGroup_(n).forEach(function (x) {
+    update_('Notes', x.id, { text: text, editedAt: now, seenAt: x.wall === me.username ? x.seenAt : '' });
+  });
+  noteNotify_(me, n, me.name + ' edited a sticky note', me.name + ' edited a sticky note. It now says:\n\n"' + text + '"');
+  return noteOut_(me);
 }
-function noteAllowed_(me, n) {
-  return me.role === 'admin' || n.fromUser === me.username ||
-    noteGroup_(n).some(function (x) { return x.wall === me.username; });
+
+function a_noteComment_(me, p) {
+  var n = mustSeeNote_(me, p.id);
+  noteLocked_(me, n);
+  var text = str_(p.text).slice(0, 500);
+  if (!text) throw userErr_('Write a comment first.');
+  insert_('NoteComments', { id: uid_(), noteKey: noteKey_(n), text: text, byUser: me.username, byName: me.name, at: nowIso_() });
+  // flag it as new again for the other walls
+  noteGroup_(n).forEach(function (x) { if (x.wall !== me.username) update_('Notes', x.id, { seenAt: '' }); });
+  noteNotify_(me, n, me.name + ' commented on a sticky note',
+    me.name + ' commented on the sticky note:\n\n"' + n.text + '"\n\nComment: "' + text + '"');
+  return noteOut_(me);
+}
+
+function noteCanClose_(me, n) {
+  return me.role === 'admin' || n.fromUser === me.username || noteGroup_(n).some(function (x) { return x.wall === me.username; });
 }
 function a_noteDone_(me, p) {
-  var n = find_('Notes', p.id);
-  if (!n) throw userErr_('That note was already removed. Refresh the page.');
-  if (!noteAllowed_(me, n)) throw userErr_('Only the person whose wall it is (or who wrote it) can change this note.');
-  var done = p.done !== false;
-  var at = done ? nowIso_() : '';
-  noteGroup_(n).forEach(function (x) { update_('Notes', x.id, { done: done, doneAt: at, doneBy: done ? me.name : '' }); });
-  return { notes: notesList_() };
+  var n = mustSeeNote_(me, p.id);
+  if (p.done === false) {
+    if (me.role !== 'admin') throw userErr_('Only an admin can reopen a note from the archive.');
+    noteGroup_(n).forEach(function (x) { update_('Notes', x.id, { done: false, doneAt: '', doneBy: '', deleted: false, deletedAt: '', deletedBy: '' }); });
+    return noteOut_(me);
+  }
+  noteLocked_(me, n);
+  if (!noteCanClose_(me, n)) throw userErr_('Only the person whose wall it is (or who wrote it) can mark this done.');
+  var at = nowIso_();
+  noteGroup_(n).forEach(function (x) { update_('Notes', x.id, { done: true, doneAt: at, doneBy: me.name }); });
+  return noteOut_(me);
 }
 function a_noteDelete_(me, p) {
   var n = find_('Notes', p.id);
+  if (!n) return noteOut_(me);
+  if (!canSeeNote_(me, n)) throw userErr_('That note was removed. Refresh the page.');
+  noteLocked_(me, n);
+  if (!noteCanClose_(me, n)) throw userErr_('Only the person whose wall it is (or who wrote it) can delete this note.');
+  var at = nowIso_();
+  noteGroup_(n).forEach(function (x) { update_('Notes', x.id, { deleted: true, deletedAt: at, deletedBy: me.name }); });
+  return noteOut_(me);
+}
+/** Admin only: permanently remove an archived note and its comments. */
+function a_notePurge_(me, p) {
+  var n = find_('Notes', p.id);
   if (n) {
-    if (!noteAllowed_(me, n)) throw userErr_('Only the person whose wall it is (or who wrote it) can delete this note.');
+    if (!noteArchived_(n)) throw userErr_('Archive the note first (mark it done or delete it).');
+    var key = noteKey_(n);
     noteGroup_(n).forEach(function (x) { remove_('Notes', x.id); });
+    rows_('NoteComments').filter(function (c) { return c.noteKey === key; }).forEach(function (c) { remove_('NoteComments', c.id); });
   }
-  return { notes: notesList_() };
+  return noteOut_(me);
 }
 function a_noteSeen_(me) {
   var now = nowIso_();
   rows_('Notes').forEach(function (n) { if (n.wall === me.username && !n.seenAt) update_('Notes', n.id, { seenAt: now }); });
-  return { notes: notesList_() };
+  return noteOut_(me);
 }
 
 /* =====================================================================

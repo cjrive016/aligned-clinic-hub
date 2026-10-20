@@ -72,8 +72,15 @@
   .sticky .nact{ display:flex; gap:6px; flex-wrap:wrap; }
   .sticky .nact button{ font-size:12px; padding:4px 9px; border-radius:7px; border:1px solid rgba(0,0,0,.15); background:rgba(255,255,255,.65); cursor:pointer; font-weight:650; }
   .sticky .newflag{ position:absolute; top:-9px; right:10px; background:var(--flag); color:#fff; font-size:11px; font-weight:800; padding:2px 8px; border-radius:999px; letter-spacing:.4px; }
-  .sticky.isdone{ opacity:.55; transform:none; }
-  .sticky.isdone .ntext{ text-decoration:line-through; }
+  .sticky.isdone{ opacity:.8; transform:none; }
+  .sticky.isdel{ opacity:.7; transform:none; filter:grayscale(.5); }
+  .sticky.isdel .ntext{ text-decoration:line-through; }
+  .sticky .nedited{ font-size:11px; color:#777; font-style:italic; }
+  .sticky .ncomments{ border-top:1px dashed rgba(0,0,0,.18); padding-top:6px; display:flex; flex-direction:column; gap:5px; }
+  .sticky .ncomment{ font-size:12.5px; color:#333; background:rgba(255,255,255,.55); border-radius:6px; padding:5px 7px; white-space:pre-wrap; word-break:break-word; }
+  .sticky .ncomment small{ color:#666; }
+  .sticky .nstatus{ font-size:12px; font-weight:700; border-radius:6px; padding:4px 7px; background:rgba(255,255,255,.7); }
+  .sticky .nstatus.del{ color:var(--flag); } .sticky .nstatus.ok{ color:var(--good); }
   .colorpick{ display:flex; gap:8px; }
   .wallpick{ display:flex; flex-wrap:wrap; gap:6px; }
   .wallpick label{ display:inline-flex; align-items:center; gap:6px; margin:0; padding:6px 11px; border:1px solid var(--line, #D8E0E8); border-radius:999px; font-size:13.5px; font-weight:600; cursor:pointer; background:#fff; text-transform:none; letter-spacing:normal; white-space:nowrap; color:var(--ink); }
@@ -86,7 +93,7 @@
   .walltabs{ display:flex; gap:6px; flex-wrap:wrap; }
   .walltabs button{ border:1px solid var(--line); background:#fff; border-radius:999px; padding:5px 12px; font-weight:650; cursor:pointer; font-size:13.5px; }
   .walltabs button.on{ background:var(--brand); color:#fff; border-color:var(--brand); }
-  .walltabs .cnt{ margin-left:5px; font-size:11.5px; opacity:.8; }
+  .walltabs .cnt{ margin-left:6px; font-size:11.5px; padding:0 6px; border-radius:999px; background:rgba(0,0,0,.08); }
 
   /* ---------- layout ---------- */
   main{ max-width:1120px; margin:0 auto; padding:22px 20px 70px; }
@@ -560,11 +567,8 @@
       <div class="formactions"><button class="btn btn-primary" id="noteBtn" onclick="addNote()">Post note</button></div>
     </div>
     <div class="wallhead"><h2 id="wallTitle" style="margin:0">My wall</h2><div class="walltabs" id="wallTabs"></div></div>
+    <div class="muted" id="wallHint" style="margin:-6px 0 14px"></div>
     <div class="notegrid" id="noteGrid"></div>
-    <div id="noteDoneWrap" class="hidden" style="margin-top:22px">
-      <div class="muted" style="font-weight:700;margin-bottom:10px">Done (last 30 days)</div>
-      <div class="notegrid" id="noteDoneGrid"></div>
-    </div>
   </section>
 
   <section id="tab-admin" class="tab">
@@ -877,58 +881,84 @@ function renderAll(){
    ========================================================= */
 const NOTE_COLORS = { yellow:'#FFF4A8', pink:'#FFD6E3', blue:'#D3EAFF', green:'#D6F5D6' };
 let noteColor = 'yellow';
-function myNewNotes(){ return (D.notes || []).filter(n => n.wall === D.me.username && !n.done && !n.seenAt); }
-function pickWall(u){ ui.wall = u; renderNotes(); if(u === D.me.username && ui.tab === 'notes') markNotesSeen(); }
+const noteArchived = n => !!(n.done || n.deleted);
+const noteKey = n => n.groupId || n.id;
+const noteWalls = n => n.walls ? String(n.walls).split(',') : [n.wall];
+function myNewNotes(){ return (D.notes || []).filter(n => n.wall === D.me.username && !noteArchived(n) && !n.seenAt); }
+function pickWall(v){ ui.noteView = v; renderNotes(); if(v === 'mine' && ui.tab === 'notes') markNotesSeen(); }
 let seenTimer = null;
 function markNotesSeen(){
   if(!myNewNotes().length) return;
   clearTimeout(seenTimer);
-  seenTimer = setTimeout(async () => { try { const r = await call('noteSeen', {}); if(r){ D.notes = r.notes; renderNotesBadges(); } } catch(e){} }, 4000);
+  seenTimer = setTimeout(async () => { try { const r = await call('noteSeen', {}); if(r){ applyNotes(r); } } catch(e){} }, 4000);
 }
+function applyNotes(r){ if(!r) return; D.notes = r.notes; D.noteComments = r.noteComments || []; if(ui.tab === 'notes') renderNotes(); else renderNotesBadges(); }
 function renderNotesBadges(){
   const fresh = myNewNotes().length;
   $('noteBadge').textContent = fresh; $('noteBadge').classList.toggle('zero', fresh === 0);
   $('noteBar').classList.toggle('hidden', fresh === 0 || ui.tab === 'notes');
-  $('noteBarText').textContent = 'You have ' + fresh + ' new sticky note' + (fresh === 1 ? '' : 's') + ' on your wall';
+  $('noteBarText').textContent = 'You have ' + fresh + ' new sticky note' + (fresh === 1 ? '' : 's') + ' (or comments) on your wall';
 }
+/** one card per note, even if it was posted to several walls */
+function dedupe(list){ const seen = {}; return list.filter(n => { const k = noteKey(n); if(seen[k]) return false; seen[k] = 1; return true; }); }
 function renderNotes(){
   if(!D) return;
-  const users = (D.users || []).slice().sort((a,b) => a.username === D.me.username ? -1 : b.username === D.me.username ? 1 : a.name.localeCompare(b.name));
-  if(!ui.wall || !users.find(u => u.username === ui.wall)) ui.wall = D.me.username;
+  const me = D.me.username, admin = D.me.role === 'admin';
+  const users = (D.users || []).slice().sort((a,b) => a.username === me ? -1 : b.username === me ? 1 : a.name.localeCompare(b.name));
   const notes = D.notes || [];
-  // wall picker
-  $('wallTabs').innerHTML = users.map(u => {
-    const open = notes.filter(n => n.wall === u.username && !n.done).length;
-    return '<button class="' + (u.username === ui.wall ? 'on' : '') + '" onclick="pickWall(\'' + esc(u.username) + '\')">' + (u.username === D.me.username ? 'My wall' : esc(u.name)) + (open ? '<span class="cnt">' + open + '</span>' : '') + '</button>';
-  }).join('');
-  const owner = users.find(u => u.username === ui.wall);
-  $('wallTitle').textContent = ui.wall === D.me.username ? 'My wall' : (owner ? owner.name + "'s wall" : 'Wall');
+  if(!['mine','sent','archive'].includes(ui.noteView)) ui.noteView = 'mine';
+  const mineList = notes.filter(n => n.wall === me && !noteArchived(n));
+  const sentList = dedupe(notes.filter(n => n.fromUser === me && !noteArchived(n) && noteWalls(n).some(w => w !== me)));
+  const archList = dedupe(notes.filter(noteArchived));
+  const newCount = myNewNotes().length;
+  const tab = (v, label, cnt, red) => '<button class="' + (ui.noteView === v ? 'on' : '') + '" onclick="pickWall(\'' + v + '\')">' + label + (cnt ? '<span class="cnt"' + (red ? ' style="background:var(--flag);color:#fff"' : '') + '>' + cnt + '</span>' : '') + '</button>';
+  $('wallTabs').innerHTML = tab('mine', 'My wall', newCount || mineList.length, !!newCount) + tab('sent', 'Notes I left', sentList.length) + tab('archive', 'Archive', 0);
+  $('wallTitle').textContent = ui.noteView === 'mine' ? 'My wall' : ui.noteView === 'sent' ? 'Notes I left for others' : 'Archive';
+  $('wallHint').textContent = ui.noteView === 'mine' ? 'Only you (and whoever wrote each note) can see these.'
+    : ui.noteView === 'sent' ? 'Notes you posted on other people\'s walls. You can edit them or add comments.'
+    : admin ? 'Completed and deleted notes from everyone. Only admins can reopen or permanently remove them.'
+            : 'Completed and deleted notes you were part of. These can\'t be changed. Ask an admin if something needs to be reopened.';
   // post form
-  if(!ui.noteWalls) ui.noteWalls = [ui.wall];
+  if(!ui.noteWalls) ui.noteWalls = [me];
   ui.noteWalls = ui.noteWalls.filter(w => users.find(u => u.username === w));
   $('n-walls').innerHTML = users.map(u => { const on = ui.noteWalls.includes(u.username);
-      return '<label class="' + (on ? 'on' : '') + '"><input type="checkbox" ' + (on ? 'checked' : '') + ' onchange="toggleNoteWall(\'' + esc(u.username) + '\', this.checked)">' + (u.username === D.me.username ? 'Me' : esc(u.name)) + '</label>'; }).join('')
+      return '<label class="' + (on ? 'on' : '') + '"><input type="checkbox" ' + (on ? 'checked' : '') + ' onchange="toggleNoteWall(\'' + esc(u.username) + '\', this.checked)">' + (u.username === me ? 'Me' : esc(u.name)) + '</label>'; }).join('')
     + '<button type="button" class="allbtn" onclick="allNoteWalls()">' + (ui.noteWalls.length === users.length ? 'Clear' : 'Everyone') + '</button>';
   $('n-colors').innerHTML = Object.keys(NOTE_COLORS).map(c => '<button type="button" title="' + c + '" class="' + (c === noteColor ? 'on' : '') + '" style="background:' + NOTE_COLORS[c] + '" onclick="noteColor=\'' + c + '\'; renderNotes()"></button>').join('');
-  // notes
-  const mine = notes.filter(n => n.wall === ui.wall).sort((a,b) => a.createdAt < b.createdAt ? 1 : -1);
+  // cards
+  const nameOf = u => u === me ? 'You' : userName(u);
+  const comments = D.noteComments || [];
   const card = n => {
-    const canEdit = D.me.role === 'admin' || n.wall === D.me.username || n.fromUser === D.me.username || String(n.walls || '').split(',').includes(D.me.username);
-    const isNew = n.wall === D.me.username && !n.seenAt && !n.done;
-    return '<div class="sticky ' + esc(n.color || 'yellow') + (n.done ? ' isdone' : '') + '">'
+    const arch = noteArchived(n);
+    const canClose = !arch && (admin || n.fromUser === me || noteWalls(n).includes(me));
+    const isNew = ui.noteView === 'mine' && n.wall === me && !n.seenAt && !arch;
+    const cs = comments.filter(c => c.noteKey === noteKey(n)).sort((a,b) => a.at < b.at ? -1 : 1);
+    const id = esc(n.id);
+    let acts = '';
+    if(!arch){
+      acts = '<button onclick="noteDone(\'' + id + '\', true)">✓ Done</button>'
+        + '<button onclick="noteComment(\'' + id + '\')">💬 Comment</button>'
+        + (n.fromUser === me ? '<button onclick="noteEdit(\'' + id + '\')">✎ Edit</button>' : '')
+        + (canClose ? '<button onclick="noteDelete(\'' + id + '\')">Delete</button>' : '');
+    } else if(admin){
+      acts = '<button onclick="noteDone(\'' + id + '\', false)">↺ Reopen</button><button onclick="notePurge(\'' + id + '\')">Remove forever</button>';
+    }
+    return '<div class="sticky ' + esc(n.color || 'yellow') + (n.deleted ? ' isdel' : n.done ? ' isdone' : '') + '">'
       + (isNew ? '<span class="newflag">NEW</span>' : '')
+      + (arch ? '<div class="nstatus ' + (n.deleted ? 'del' : 'ok') + '">' + (n.deleted ? '🗑 Deleted by ' + esc(n.deletedBy) + ' · ' + esc(fmtDateTime(n.deletedAt)) : '✓ Completed by ' + esc(n.doneBy) + ' · ' + esc(fmtDateTime(n.doneAt))) + '</div>' : '')
       + '<div class="ntext">' + esc(n.text) + '</div>'
-      + '<div class="nmeta">From <strong>' + esc(n.fromName) + '</strong> · ' + esc(fmtDateTime(n.createdAt))
-      + (n.done ? '<br>Done by ' + esc(n.doneBy) + ' · ' + esc(fmtDateTime(n.doneAt)) : '') + '</div>'
-      + (n.walls ? '<div class="nalso">Also on: ' + esc(String(n.walls).split(',').filter(w => w !== n.wall).map(w => w === D.me.username ? 'You' : userName(w)).join(', ')) + '</div>' : '')
-      + (canEdit ? '<div class="nact">' + (n.done ? '<button onclick="noteDone(\'' + esc(n.id) + '\', false)">Undo</button>' : '<button onclick="noteDone(\'' + esc(n.id) + '\', true)">✓ Done</button>')
-        + '<button onclick="noteDelete(\'' + esc(n.id) + '\')">Delete</button></div>' : '')
+      + (n.editedAt ? '<div class="nedited">edited ' + esc(fmtDateTime(n.editedAt)) + '</div>' : '')
+      + '<div class="nmeta">From <strong>' + esc(n.fromUser === me ? 'You' : n.fromName) + '</strong> → ' + esc(noteWalls(n).map(nameOf).join(', ')) + '<br>' + esc(fmtDateTime(n.createdAt)) + '</div>'
+      + (cs.length ? '<div class="ncomments">' + cs.map(c => '<div class="ncomment"><strong>' + esc(c.byUser === me ? 'You' : c.byName) + ':</strong> ' + esc(c.text) + '<br><small>' + esc(fmtDateTime(c.at)) + '</small></div>').join('') + '</div>' : '')
+      + (acts ? '<div class="nact">' + acts + '</div>' : '')
       + '</div>';
   };
-  const open = mine.filter(n => !n.done), done = mine.filter(n => n.done);
-  $('noteGrid').innerHTML = open.length ? open.map(card).join('') : '<div class="emptymsg">No sticky notes on this wall.</div>';
-  $('noteDoneGrid').innerHTML = done.map(card).join('');
-  $('noteDoneWrap').classList.toggle('hidden', !done.length);
+  let list = ui.noteView === 'mine' ? mineList : ui.noteView === 'sent' ? sentList : archList;
+  list = list.slice().sort((a,b) => {
+    const ka = ui.noteView === 'archive' ? (a.deletedAt || a.doneAt) : a.createdAt, kb = ui.noteView === 'archive' ? (b.deletedAt || b.doneAt) : b.createdAt;
+    return ka < kb ? 1 : -1; });
+  $('noteGrid').innerHTML = list.length ? list.map(card).join('')
+    : '<div class="emptymsg">' + (ui.noteView === 'mine' ? 'No sticky notes on your wall.' : ui.noteView === 'sent' ? 'You haven\'t left any open notes for anyone.' : 'Nothing in the archive yet.') + '</div>';
   renderNotesBadges();
 }
 async function addNote(){
@@ -938,7 +968,7 @@ async function addNote(){
   if(!walls.length){ toast('Pick at least one wall.', true); return; }
   const others = walls.filter(w => w !== D.me.username).map(userName);
   const res = await act('noteAdd', { text, walls, color: noteColor }, others.length ? 'Note posted. ' + others.join(', ') + (others.length === 1 ? ' was' : ' were') + ' emailed.' : 'Note posted.');
-  if(res){ D.notes = res.notes; $('n-text').value = ''; ui.wall = walls.includes(ui.wall) ? ui.wall : walls[0]; renderNotes(); }
+  if(res){ $('n-text').value = ''; ui.noteView = others.length ? 'sent' : 'mine'; applyNotes(res); }
 }
 function toggleNoteWall(w, on){
   ui.noteWalls = (ui.noteWalls || []).filter(x => x !== w);
@@ -950,14 +980,32 @@ function allNoteWalls(){
   ui.noteWalls = (ui.noteWalls || []).length === all.length ? [] : all;
   renderNotes();
 }
+function findNote(id){ return (D.notes || []).find(n => n.id === id); }
+async function noteEdit(id){
+  const n = findNote(id); if(!n) return;
+  const r = await ask({ title:'Edit sticky note', message:'Everyone the note is on will get an email that you changed it.', okText:'Save',
+    fields:[{ id:'text', label:'Note', type:'textarea', value:n.text, required:true }] });
+  if(!r || r.text === n.text) return;
+  applyNotes(await act('noteEdit', { id, text: r.text }, 'Note updated.'));
+}
+async function noteComment(id){
+  const n = findNote(id); if(!n) return;
+  const r = await ask({ title:'Add a comment', message:'"' + n.text.slice(0, 140) + (n.text.length > 140 ? '…' : '') + '"', okText:'Post comment',
+    fields:[{ id:'text', label:'Comment', type:'textarea', placeholder:'e.g. Ordered — should be here Friday', required:true }] });
+  if(!r) return;
+  applyNotes(await act('noteComment', { id, text: r.text }, 'Comment added. Everyone on the note was emailed.'));
+}
 async function noteDone(id, done){
-  const res = await act('noteDone', { id, done }, done ? 'Marked done ✓' : 'Moved back to open.');
-  if(res){ D.notes = res.notes; renderNotes(); }
+  if(done && !await confirmBox('Mark this note done?', 'It moves to the archive for everyone on it. Only an admin can reopen it.', 'Mark done')) return;
+  applyNotes(await act('noteDone', { id, done }, done ? 'Done ✓ — moved to the archive.' : 'Reopened.'));
 }
 async function noteDelete(id){
-  if(!await confirmBox('Delete this sticky note?', 'It will be removed for everyone, from every wall it was posted on.', 'Delete', true)) return;
-  const res = await act('noteDelete', { id }, 'Note deleted.');
-  if(res){ D.notes = res.notes; renderNotes(); }
+  if(!await confirmBox('Delete this sticky note?', 'It is removed from every wall and kept in the archive. Only an admin can reopen it.', 'Delete', true)) return;
+  applyNotes(await act('noteDelete', { id }, 'Note deleted — kept in the archive.'));
+}
+async function notePurge(id){
+  if(!await confirmBox('Remove forever?', 'This permanently erases the note and its comments from the archive. This cannot be undone.', 'Remove forever', true)) return;
+  applyNotes(await act('notePurge', { id }, 'Removed from the archive.'));
 }
 
 function showTab(name, silent){
@@ -965,7 +1013,7 @@ function showTab(name, silent){
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
   document.querySelectorAll('#mainnav button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   if(name === 'admin' && !silent && D && D.me.role === 'admin') renderAdmin();
-  if(D && name === 'notes'){ renderNotes(); if((ui.wall || D.me.username) === D.me.username) markNotesSeen(); }
+  if(D && name === 'notes'){ renderNotes(); if((ui.noteView || 'mine') === 'mine') markNotesSeen(); }
   if(D) renderNotesBadges();
   if(!silent) window.scrollTo({ top:0 });
 }
