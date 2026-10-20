@@ -69,7 +69,7 @@ var TABLES = {
   Meds:     ['id', 'name', 'ndc', 'lot', 'expiration', 'qty', 'location', 'notes', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'],
   Swaps:    ['id', 'date', 'task', 'fromName', 'toName', 'coverId', 'origDate', 'createdAt'],
   Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls', 'deleted', 'deletedAt', 'deletedBy', 'editedAt'],
-  NoteComments: ['id', 'noteKey', 'text', 'byUser', 'byName', 'at'],
+  NoteComments: ['id', 'noteKey', 'text', 'byUser', 'byName', 'at', 'kind'],
   QC:       ['id', 'loggedAt', 'test', 'lot', 'expiration', 'reason', 'posControl', 'negControl', 'result', 'byName', 'by', 'notes', 'voided', 'voidReason', 'voidedBy']
 };
 var KEYS = { Users: 'username' };
@@ -693,6 +693,9 @@ function a_medDelete_(me, p) {
 /* =====================================================================
    STICKY NOTES
    - You only see notes on YOUR wall and notes YOU wrote (on anyone's wall).
+     Admins can see every note on every wall.
+   - Nobody can change or remove text someone already wrote. "Edit" only
+     ADDS to the writer's own note; the original text always stays.
    - A note posted to several walls is one note (copies share a groupId).
    - Anyone who can see a note can comment on it; the writer can edit it.
    - Completing or deleting a note moves it to the archive. Archived notes
@@ -709,7 +712,7 @@ function noteArchived_(n) { return !!(n.done || n.deleted); }
 function canSeeNote_(me, n) {
   if (n.fromUser === me.username) return true;
   if (noteGroup_(n).some(function (x) { return x.wall === me.username; })) return true;
-  return me.role === 'admin' && noteArchived_(n);
+  return me.role === 'admin';
 }
 function notesList_(me) {
   var list = rows_('Notes').filter(function (n) { return canSeeNote_(me, n); });
@@ -774,14 +777,16 @@ function a_noteAdd_(me, p) {
 function a_noteEdit_(me, p) {
   var n = mustSeeNote_(me, p.id);
   noteLocked_(me, n);
-  if (n.fromUser !== me.username) throw userErr_('Only the person who wrote this note can edit it. You can add a comment instead.');
+  if (n.fromUser !== me.username) throw userErr_('Only the person who wrote this note can add to it. You can add a comment instead.');
   var text = str_(p.text).slice(0, 1000);
-  if (!text) throw userErr_('The note cannot be empty.');
+  if (!text) throw userErr_('Write what you want to add.');
   var now = nowIso_();
+  insert_('NoteComments', { id: uid_(), noteKey: noteKey_(n), text: text, byUser: me.username, byName: me.name, at: now, kind: 'addition' });
   noteGroup_(n).forEach(function (x) {
-    update_('Notes', x.id, { text: text, editedAt: now, seenAt: x.wall === me.username ? x.seenAt : '' });
+    update_('Notes', x.id, { editedAt: now, seenAt: x.wall === me.username ? x.seenAt : '' });
   });
-  noteNotify_(me, n, me.name + ' edited a sticky note', me.name + ' edited a sticky note. It now says:\n\n"' + text + '"');
+  noteNotify_(me, n, me.name + ' added to a sticky note',
+    me.name + ' added to their sticky note.\n\nOriginal: "' + n.text + '"\n\nAdded: "' + text + '"');
   return noteOut_(me);
 }
 
@@ -790,7 +795,7 @@ function a_noteComment_(me, p) {
   noteLocked_(me, n);
   var text = str_(p.text).slice(0, 500);
   if (!text) throw userErr_('Write a comment first.');
-  insert_('NoteComments', { id: uid_(), noteKey: noteKey_(n), text: text, byUser: me.username, byName: me.name, at: nowIso_() });
+  insert_('NoteComments', { id: uid_(), noteKey: noteKey_(n), text: text, byUser: me.username, byName: me.name, at: nowIso_(), kind: 'comment' });
   // flag it as new again for the other walls
   noteGroup_(n).forEach(function (x) { if (x.wall !== me.username) update_('Notes', x.id, { seenAt: '' }); });
   noteNotify_(me, n, me.name + ' commented on a sticky note',

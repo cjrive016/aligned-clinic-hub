@@ -75,7 +75,8 @@
   .sticky.isdone{ opacity:.8; transform:none; }
   .sticky.isdel{ opacity:.7; transform:none; filter:grayscale(.5); }
   .sticky.isdel .ntext{ text-decoration:line-through; }
-  .sticky .nedited{ font-size:11px; color:#777; font-style:italic; }
+  .sticky .nadd{ font-size:14px; color:#2a2a2a; border-left:3px solid rgba(0,0,0,.25); padding-left:7px; white-space:pre-wrap; word-break:break-word; }
+  .sticky .nadd small{ display:block; font-size:11px; color:#777; font-style:italic; }
   .sticky .ncomments{ border-top:1px dashed rgba(0,0,0,.18); padding-top:6px; display:flex; flex-direction:column; gap:5px; }
   .sticky .ncomment{ font-size:12.5px; color:#333; background:rgba(255,255,255,.55); border-radius:6px; padding:5px 7px; white-space:pre-wrap; word-break:break-word; }
   .sticky .ncomment small{ color:#666; }
@@ -906,18 +907,25 @@ function renderNotes(){
   const me = D.me.username, admin = D.me.role === 'admin';
   const users = (D.users || []).slice().sort((a,b) => a.username === me ? -1 : b.username === me ? 1 : a.name.localeCompare(b.name));
   const notes = D.notes || [];
-  if(!['mine','sent','archive'].includes(ui.noteView)) ui.noteView = 'mine';
+  if(!['mine','sent','all','archive'].includes(ui.noteView) || (ui.noteView === 'all' && !admin)) ui.noteView = 'mine';
   const mineList = notes.filter(n => n.wall === me && !noteArchived(n));
   const sentList = dedupe(notes.filter(n => n.fromUser === me && !noteArchived(n) && noteWalls(n).some(w => w !== me)));
   const archList = dedupe(notes.filter(noteArchived));
+  const allOpen = notes.filter(n => !noteArchived(n));
+  if(ui.allWall && !users.find(u => u.username === ui.allWall)) ui.allWall = '';
+  const allList = ui.allWall ? allOpen.filter(n => n.wall === ui.allWall) : dedupe(allOpen);
   const newCount = myNewNotes().length;
   const tab = (v, label, cnt, red) => '<button class="' + (ui.noteView === v ? 'on' : '') + '" onclick="pickWall(\'' + v + '\')">' + label + (cnt ? '<span class="cnt"' + (red ? ' style="background:var(--flag);color:#fff"' : '') + '>' + cnt + '</span>' : '') + '</button>';
-  $('wallTabs').innerHTML = tab('mine', 'My wall', newCount || mineList.length, !!newCount) + tab('sent', 'Notes I left', sentList.length) + tab('archive', 'Archive', 0);
-  $('wallTitle').textContent = ui.noteView === 'mine' ? 'My wall' : ui.noteView === 'sent' ? 'Notes I left for others' : 'Archive';
-  $('wallHint').textContent = ui.noteView === 'mine' ? 'Only you (and whoever wrote each note) can see these.'
-    : ui.noteView === 'sent' ? 'Notes you posted on other people\'s walls. You can edit them or add comments.'
+  $('wallTabs').innerHTML = tab('mine', 'My wall', newCount || mineList.length, !!newCount) + tab('sent', 'Notes I left', sentList.length)
+    + (admin ? tab('all', 'All walls (admin)', dedupe(allOpen).length) : '') + tab('archive', 'Archive', 0);
+  $('wallTitle').textContent = ui.noteView === 'mine' ? 'My wall' : ui.noteView === 'sent' ? 'Notes I left for others' : ui.noteView === 'all' ? 'All walls' : 'Archive';
+  $('wallHint').innerHTML = ui.noteView === 'all'
+    ? 'Every open note on every wall. Show: <select onchange="ui.allWall=this.value; renderNotes()" style="display:inline-block;width:auto;padding:4px 8px">'
+      + '<option value="">Everyone</option>' + users.map(u => '<option value="' + esc(u.username) + '"' + (ui.allWall === u.username ? ' selected' : '') + '>' + esc(u.name) + '\'s wall</option>').join('') + '</select>'
+    : esc(ui.noteView === 'mine' ? 'Only you, whoever wrote each note, and admins can see these.'
+    : ui.noteView === 'sent' ? 'Notes you posted on other people\'s walls. You can add to them or comment.'
     : admin ? 'Completed and deleted notes from everyone. Only admins can reopen or permanently remove them.'
-            : 'Completed and deleted notes you were part of. These can\'t be changed. Ask an admin if something needs to be reopened.';
+            : 'Completed and deleted notes you were part of. These can\'t be changed. Ask an admin if something needs to be reopened.');
   // post form
   if(!ui.noteWalls) ui.noteWalls = [me];
   ui.noteWalls = ui.noteWalls.filter(w => users.find(u => u.username === w));
@@ -932,13 +940,14 @@ function renderNotes(){
     const arch = noteArchived(n);
     const canClose = !arch && (admin || n.fromUser === me || noteWalls(n).includes(me));
     const isNew = ui.noteView === 'mine' && n.wall === me && !n.seenAt && !arch;
-    const cs = comments.filter(c => c.noteKey === noteKey(n)).sort((a,b) => a.at < b.at ? -1 : 1);
+    const all = comments.filter(c => c.noteKey === noteKey(n)).sort((a,b) => a.at < b.at ? -1 : 1);
+    const adds = all.filter(c => c.kind === 'addition'), cs = all.filter(c => c.kind !== 'addition');
     const id = esc(n.id);
     let acts = '';
     if(!arch){
       acts = '<button onclick="noteDone(\'' + id + '\', true)">✓ Done</button>'
         + '<button onclick="noteComment(\'' + id + '\')">💬 Comment</button>'
-        + (n.fromUser === me ? '<button onclick="noteEdit(\'' + id + '\')">✎ Edit</button>' : '')
+        + (n.fromUser === me ? '<button onclick="noteEdit(\'' + id + '\')">✎ Add to note</button>' : '')
         + (canClose ? '<button onclick="noteDelete(\'' + id + '\')">Delete</button>' : '');
     } else if(admin){
       acts = '<button onclick="noteDone(\'' + id + '\', false)">↺ Reopen</button><button onclick="notePurge(\'' + id + '\')">Remove forever</button>';
@@ -947,18 +956,18 @@ function renderNotes(){
       + (isNew ? '<span class="newflag">NEW</span>' : '')
       + (arch ? '<div class="nstatus ' + (n.deleted ? 'del' : 'ok') + '">' + (n.deleted ? '🗑 Deleted by ' + esc(n.deletedBy) + ' · ' + esc(fmtDateTime(n.deletedAt)) : '✓ Completed by ' + esc(n.doneBy) + ' · ' + esc(fmtDateTime(n.doneAt))) + '</div>' : '')
       + '<div class="ntext">' + esc(n.text) + '</div>'
-      + (n.editedAt ? '<div class="nedited">edited ' + esc(fmtDateTime(n.editedAt)) + '</div>' : '')
+      + adds.map(c => '<div class="nadd">+ ' + esc(c.text) + '<small>added ' + esc(fmtDateTime(c.at)) + '</small></div>').join('')
       + '<div class="nmeta">From <strong>' + esc(n.fromUser === me ? 'You' : n.fromName) + '</strong> → ' + esc(noteWalls(n).map(nameOf).join(', ')) + '<br>' + esc(fmtDateTime(n.createdAt)) + '</div>'
       + (cs.length ? '<div class="ncomments">' + cs.map(c => '<div class="ncomment"><strong>' + esc(c.byUser === me ? 'You' : c.byName) + ':</strong> ' + esc(c.text) + '<br><small>' + esc(fmtDateTime(c.at)) + '</small></div>').join('') + '</div>' : '')
       + (acts ? '<div class="nact">' + acts + '</div>' : '')
       + '</div>';
   };
-  let list = ui.noteView === 'mine' ? mineList : ui.noteView === 'sent' ? sentList : archList;
+  let list = ui.noteView === 'mine' ? mineList : ui.noteView === 'sent' ? sentList : ui.noteView === 'all' ? allList : archList;
   list = list.slice().sort((a,b) => {
     const ka = ui.noteView === 'archive' ? (a.deletedAt || a.doneAt) : a.createdAt, kb = ui.noteView === 'archive' ? (b.deletedAt || b.doneAt) : b.createdAt;
     return ka < kb ? 1 : -1; });
   $('noteGrid').innerHTML = list.length ? list.map(card).join('')
-    : '<div class="emptymsg">' + (ui.noteView === 'mine' ? 'No sticky notes on your wall.' : ui.noteView === 'sent' ? 'You haven\'t left any open notes for anyone.' : 'Nothing in the archive yet.') + '</div>';
+    : '<div class="emptymsg">' + (ui.noteView === 'mine' ? 'No sticky notes on your wall.' : ui.noteView === 'all' ? 'No open notes.' : ui.noteView === 'sent' ? 'You haven\'t left any open notes for anyone.' : 'Nothing in the archive yet.') + '</div>';
   renderNotesBadges();
 }
 async function addNote(){
@@ -983,10 +992,10 @@ function allNoteWalls(){
 function findNote(id){ return (D.notes || []).find(n => n.id === id); }
 async function noteEdit(id){
   const n = findNote(id); if(!n) return;
-  const r = await ask({ title:'Edit sticky note', message:'Everyone the note is on will get an email that you changed it.', okText:'Save',
-    fields:[{ id:'text', label:'Note', type:'textarea', value:n.text, required:true }] });
-  if(!r || r.text === n.text) return;
-  applyNotes(await act('noteEdit', { id, text: r.text }, 'Note updated.'));
+  const r = await ask({ title:'Add to your note', message:'Your original note stays exactly as written. What you add here shows underneath it, with the time. Everyone on the note gets an email.\n\nOriginal: "' + n.text.slice(0, 200) + (n.text.length > 200 ? '…' : '') + '"', okText:'Add',
+    fields:[{ id:'text', label:'Add', type:'textarea', placeholder:'e.g. Also need the large size', required:true }] });
+  if(!r) return;
+  applyNotes(await act('noteEdit', { id, text: r.text }, 'Added to your note.'));
 }
 async function noteComment(id){
   const n = findNote(id); if(!n) return;
