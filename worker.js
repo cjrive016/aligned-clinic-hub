@@ -1639,7 +1639,7 @@ async function sendMailBatch_(env, mail, cfg) {
         const res = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + cfg.apiKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: cfg.from || 'Aligned Clinic Hub <hub@alignedhealthmurray.com>', to: [m.to], subject: m.subject, text: m.body })
+          body: JSON.stringify({ from: cfg.from || 'Aligned Clinic Hub <onboarding@resend.dev>', to: [m.to], subject: m.subject, text: m.body })
         });
         if (res.ok) status = 'sent';
         else { const t = await res.text(); status = 'failed: ' + t.slice(0, 180); }
