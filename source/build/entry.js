@@ -14,7 +14,7 @@ function adminInfo_() {
   return {
     triggerOn: !!last && (Date.now() - Number(last)) < 2 * 3600 * 1000,
     lastTick: last ? new Date(Number(last)).toISOString() : '',
-    emailOn: !!cfg.apiKey,
+    emailOn: !!(cfg.apiKey || (cfg.relayUrl && cfg.relayKey)),
     emailFrom: cfg.from || '',
     emailKeyHint: cfg.apiKey ? '••••' + cfg.apiKey.slice(-4) : '',
     appUrl: appUrl_(),
@@ -80,7 +80,16 @@ async function runLocked_(env, origin, work) {
 async function sendMailBatch_(env, mail, cfg) {
   for (const m of mail) {
     let status = 'not sent: email is not set up yet (Admin > Emails)';
-    if (cfg.apiKey) {
+    if (cfg.relayUrl && cfg.relayKey) {
+      // Send through Jacob's Google account (Apps Script web app)
+      try {
+        const res = await fetch(cfg.relayUrl, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({ key: cfg.relayKey, to: m.to, subject: m.subject, body: m.body }) });
+        const t = await res.text();
+        let j = null; try { j = JSON.parse(t); } catch (e) {}
+        status = j && j.ok ? 'sent' : 'failed: ' + (j && j.error ? j.error : t).slice(0, 180);
+      } catch (e) { status = 'failed: ' + String(e).slice(0, 180); }
+    } else if (cfg.apiKey) {
       try {
         const res = await fetch('https://api.resend.com/emails', {
           method: 'POST',
