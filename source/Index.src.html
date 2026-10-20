@@ -67,6 +67,11 @@
   .sticky{ position:relative; border-radius:4px 4px 12px 4px; padding:16px 14px 12px; min-height:150px; box-shadow:0 6px 14px rgba(30,40,60,.13); display:flex; flex-direction:column; gap:8px; transform:rotate(-.6deg); }
   .sticky:nth-child(2n){ transform:rotate(.7deg); }
   .sticky.yellow{ background:#FFF4A8; } .sticky.pink{ background:#FFD6E3; } .sticky.blue{ background:#D3EAFF; } .sticky.green{ background:#D6F5D6; }
+  .sticky.nyellow{ background:#FAFF00; } .sticky.npink{ background:#FF5CC8; } .sticky.ngreen{ background:#39FF88; } .sticky.norange{ background:#FF9F1C; }
+  .sticky.nblue{ background:#2EE6FF; } .sticky.npurple{ background:#C77DFF; } .sticky.nred{ background:#FF4D6D; } .sticky.nlime{ background:#C6FF1A; }
+  .sticky.npink .ntext, .sticky.npurple .ntext, .sticky.nred .ntext{ color:#1a1a1a; font-weight:550; }
+  .sticky.npink .nmeta, .sticky.npurple .nmeta, .sticky.nred .nmeta{ color:#222; }
+  .colorpick{ flex-wrap:wrap; }
   .sticky .ntext{ white-space:pre-wrap; word-break:break-word; font-size:15px; color:#2a2a2a; flex:1; }
   .sticky .nmeta{ font-size:12px; color:#555; }
   .sticky .nact{ display:flex; gap:6px; flex-wrap:wrap; }
@@ -880,7 +885,7 @@ function renderAll(){
 /* =========================================================
    STICKY NOTES
    ========================================================= */
-const NOTE_COLORS = { yellow:'#FFF4A8', pink:'#FFD6E3', blue:'#D3EAFF', green:'#D6F5D6' };
+const NOTE_COLORS = { yellow:'#FFF4A8', pink:'#FFD6E3', blue:'#D3EAFF', green:'#D6F5D6', nyellow:'#FAFF00', npink:'#FF5CC8', ngreen:'#39FF88', norange:'#FF9F1C', nblue:'#2EE6FF', npurple:'#C77DFF', nred:'#FF4D6D', nlime:'#C6FF1A' };
 let noteColor = 'yellow';
 const noteArchived = n => !!(n.done || n.deleted);
 const noteKey = n => n.groupId || n.id;
@@ -932,7 +937,7 @@ function renderNotes(){
   $('n-walls').innerHTML = users.map(u => { const on = ui.noteWalls.includes(u.username);
       return '<label class="' + (on ? 'on' : '') + '"><input type="checkbox" ' + (on ? 'checked' : '') + ' onchange="toggleNoteWall(\'' + esc(u.username) + '\', this.checked)">' + (u.username === me ? 'Me' : esc(u.name)) + '</label>'; }).join('')
     + '<button type="button" class="allbtn" onclick="allNoteWalls()">' + (ui.noteWalls.length === users.length ? 'Clear' : 'Everyone') + '</button>';
-  $('n-colors').innerHTML = Object.keys(NOTE_COLORS).map(c => '<button type="button" title="' + c + '" class="' + (c === noteColor ? 'on' : '') + '" style="background:' + NOTE_COLORS[c] + '" onclick="noteColor=\'' + c + '\'; renderNotes()"></button>').join('');
+  $('n-colors').innerHTML = Object.keys(NOTE_COLORS).map(c => '<button type="button" title="' + (c[0] === 'n' ? 'Neon ' + c.slice(1) : c) + '" class="' + (c === noteColor ? 'on' : '') + '" style="background:' + NOTE_COLORS[c] + '" onclick="noteColor=\'' + c + '\'; renderNotes()"></button>').join('');
   // cards
   const nameOf = u => u === me ? 'You' : userName(u);
   const comments = D.noteComments || [];

@@ -702,7 +702,7 @@ function a_medDelete_(me, p) {
      are read-only for staff. Only admins see the whole archive and can
      restore or permanently remove archived notes.
    ===================================================================== */
-var NOTE_COLORS = ['yellow', 'pink', 'blue', 'green'];
+var NOTE_COLORS = ['yellow', 'pink', 'blue', 'green', 'nyellow', 'npink', 'ngreen', 'norange', 'nblue', 'npurple', 'nred', 'nlime'];
 function noteKey_(n) { return n.groupId || n.id; }
 function noteGroup_(n) {
   if (!n.groupId) return [n];
