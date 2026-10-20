@@ -9,3 +9,5 @@ Live at https://aligned-clinic-hub.jacob-d91.workers.dev
 - `source/` holds the original sources (`Code.gs`, `Index.src.html`) and the build scripts that generate `worker.js`.
 
 No passwords or API keys live in this repo. The Resend key and accounts are stored in the D1 database and set from the Admin tab.
+
+Deploys automatically from the `main` branch via Cloudflare Workers Builds.
