@@ -52,7 +52,8 @@ var CLEANING_RULE = 'Sweeping: if you see a spot, mop it up. Don\'t leave it for
   'Trash is a team job: both people on that day are responsible. Jobs swap every other week so everyone gets a turn. ' +
   'If you leave early, you still must do your task. Tasks can be done with or without patients here. ' +
   'Do NOT push it off until the next day: new day = new task. ' +
-  'Every task needs 2 people to sign off: one person signs off, then a second person checks it and confirms.';
+  'Every task needs 2 people to sign off: one person signs off, then a second person checks it and confirms. ' +
+  'If a task is missed it carries over to your next work day until it is done. If someone covers your task, you take their next turn at that task.';
 
 var DEFAULT_QC_TESTS = [
   'Strep A', 'Influenza A/B', 'COVID-19', 'Flu/COVID combo', 'RSV',
@@ -66,6 +67,7 @@ var TABLES = {
   Orders:   ['id', 'itemId', 'name', 'qty', 'price', 'assignTo', 'by', 'note', 'status', 'requestedAt', 'orderedAt', 'receivedAt'],
   Cleaning: ['id', 'date', 'day', 'task', 'assigned', 'assignedName', 'doneBy', 'doneByName', 'doneAt', 'offAssignment', 'late', 'comment', 'kind'],
   Meds:     ['id', 'name', 'ndc', 'lot', 'expiration', 'qty', 'location', 'notes', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'],
+  Swaps:    ['id', 'date', 'task', 'fromName', 'toName', 'coverId', 'origDate', 'createdAt'],
   Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls'],
   QC:       ['id', 'loggedAt', 'test', 'lot', 'expiration', 'reason', 'posControl', 'negControl', 'result', 'byName', 'by', 'notes', 'voided', 'voidReason', 'voidedBy']
 };
@@ -234,6 +236,7 @@ function a_bootstrap_(me) {
     house: CONFIG.HOUSE,
     users: rows_('Users').filter(function (u) { return u.active; }).map(function (u) { return pubUser_(u, isAdmin); }),
     cleaning: cleaningBetween_(week.dates.Mon, week.dates.Fri),
+    carryOver: carryOver_(s, week.today),
     items: clean_(rows_('Items')),
     orders: clean_(rows_('Orders')),
     qc: clean_(rows_('QC')),
@@ -272,8 +275,17 @@ function cleaningBetween_(from, to) {
 function a_cleanDone_(me, p) {
   var s = settings_();
   var week = weekInfo_();
-  var day = String(p.day || '');
-  var date = week.dates[day];
+  var day, date;
+  if (p.date) {
+    date = String(p.date);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw userErr_('Bad date.');
+    day = dayKeyOf_(date);
+    if (!day) throw userErr_('Pick a weekday.');
+    if (date < addDaysYmd_(week.today, -CARRY_LOOKBACK_DAYS)) throw userErr_('That day is too far back to sign off.');
+  } else {
+    day = String(p.day || '');
+    date = week.dates[day];
+  }
   if (!date) throw userErr_('Pick a weekday.');
   if (date > week.today) throw userErr_("You can't sign off a day that hasn't happened yet.");
   if (s.startDate && date < s.startDate) throw userErr_('Cleaning sign-offs start ' + prettyDate_(s.startDate) + '.');
@@ -293,14 +305,32 @@ function a_cleanDone_(me, p) {
   var assigned = labels.map(function (l) { var u = personUser_(l); return u ? u.username : l; }).join(',');
   var assignedName = labels.length ? labels.map(displayName_).join(' + ') : 'No one';
   var late = date < week.today;
+  var recId = uid_();
 
   insert_('Cleaning', {
-    id: uid_(), date: date, day: day, task: task,
+    id: recId, date: date, day: day, task: task,
     assigned: assigned, assignedName: assignedName,
     doneBy: me.username, doneByName: me.name, doneAt: nowIso_(),
     offAssignment: off, late: late, comment: comment, kind: second ? 'check' : 'done'
   });
 
+  var payback = null;
+  if (off && labels.length === 1 && !isTeamLabel_(dd.who[task])) {
+    payback = makePayback_(s, me, task, labels[0], date, recId, week.today);
+  }
+  var payLine = payback
+    ? '\n\nPay-back: ' + payback.toName + ' will do ' + me.name + "'s " + task + ' on ' + DAY_NAMES[dayKeyOf_(payback.date)] + ' ' + prettyDate_(payback.date) + '.'
+    : '';
+  if (payback) {
+    var owedU = personUser_(labels[0]);
+    if (owedU && owedU.email) {
+      try {
+        sendMail_(owedU.email, 'Cleaning: you owe ' + me.name + ' a ' + task + ' turn',
+          'Hi ' + owedU.name + ',\n\n' + me.name + ' did your ' + task + ' task from ' + DAY_NAMES[day] + ' ' + prettyDate_(date) + '.\n\n' +
+          'To make it even, you are now on ' + task + ' on ' + DAY_NAMES[dayKeyOf_(payback.date)] + ' ' + prettyDate_(payback.date) + ' (' + me.name + "'s turn).\n\nThank you!");
+      } catch (e) { console.warn('Pay-back email failed: ' + e); }
+    }
+  }
   if (off) {
     try {
       sendMail_(s.notifyEmail,
@@ -311,10 +341,16 @@ function a_cleanDone_(me, p) {
         'Assigned to: ' + assignedName + '\n' +
         'Done by: ' + me.name + '\n' +
         'Signed off: ' + prettyNow_() + '\n\n' +
-        'Their reason:\n"' + comment + '"');
+        'Their reason:\n"' + comment + '"' + payLine);
     } catch (e) { console.warn('Off-day email failed: ' + e); }
   }
-  return { cleaning: cleaningBetween_(week.dates.Mon, week.dates.Fri) };
+  return cleanState_(s, week, payback ? { payback: payback } : null);
+}
+
+function cleanState_(s, week, extra) {
+  var o = { cleaning: cleaningBetween_(week.dates.Mon, week.dates.Fri), weekSchedule: weekSchedule_(s, week), carryOver: carryOver_(s, week.today) };
+  if (extra) Object.keys(extra).forEach(function (k) { o[k] = extra[k]; });
+  return o;
 }
 
 /** How many different people must sign off each cleaning task. */
@@ -331,7 +367,8 @@ function a_cleanUndo_(me, p) {
   var allowed = me.role === 'admin' || (rec.doneBy === me.username && ymd_(new Date(rec.doneAt)) === week.today);
   if (!allowed) throw userErr_('Only an admin can undo this sign-off.');
   remove_('Cleaning', rec.id);
-  return { cleaning: cleaningBetween_(week.dates.Mon, week.dates.Fri) };
+  rows_('Swaps').filter(function (w) { return w.coverId === rec.id; }).forEach(function (w) { remove_('Swaps', w.id); });
+  return cleanState_(settings_(), week);
 }
 
 function a_cleanMonth_(me, p) {
@@ -344,15 +381,26 @@ function a_cleanMonth_(me, p) {
 
 function sendMorning_(s, dayKey, date) {
   var d = dayFor_(s, dayKey, date);
-  if (!d.tasks.length) return;
+  var carry = carryOver_(s, date);
+  if (!d.tasks.length && !carry.length) return;
   var byUser = {};
+  var add = function (l, text) {
+    var u = personUser_(l);
+    if (!u || !u.email) return;
+    if (!byUser[u.username]) byUser[u.username] = { u: u, tasks: [] };
+    byUser[u.username].tasks.push(text);
+  };
   d.tasks.forEach(function (t) {
     var team = isTeamLabel_((d.who || {})[t]);
+    var sw = d.swaps[t];
     assigneesOf_(d, t).forEach(function (l) {
-      var u = personUser_(l);
-      if (!u || !u.email) return;
-      if (!byUser[u.username]) byUser[u.username] = { u: u, tasks: [] };
-      byUser[u.username].tasks.push(t + (team ? ' (team job, shared with your partner)' : ''));
+      add(l, t + (team ? ' (team job, shared with your partner)' : '') + (sw ? ' (' + sw.fromName + "'s turn: they covered your " + t + ' on ' + prettyDate_(sw.origDate) + ')' : ''));
+    });
+  });
+  carry.forEach(function (c) {
+    var dd = dayFor_(s, c.day, c.date);
+    assigneesOf_(dd, c.task).forEach(function (l) {
+      add(l, c.task + ': MISSED on ' + DAY_NAMES[c.day] + ' ' + prettyDate_(c.date) + ', carried over to today' + (c.recs.length ? ' (needs a 2nd sign-off)' : ''));
     });
   });
   var team = teamNames_(d);
@@ -386,23 +434,29 @@ function teamNames_(d) {
 
 function sendMissed_(s, dayKey, date) {
   var d = dayFor_(s, dayKey, date);
-  if (!d.tasks.length) return;
+  var older = carryOver_(s, date);
+  if (!d.tasks.length && !older.length) return;
   var signed = {};
   rows_('Cleaning').forEach(function (r) { if (r.date === date) (signed[r.task] = signed[r.task] || []).push(r.doneByName); });
   var missing = d.tasks.filter(function (t) { return (signed[t] || []).length < SIGNOFFS_NEEDED; });
-  if (!missing.length) return;
+  if (!missing.length && !older.length) return;
   var whoOf = function (t) {
     var l = assigneesOf_(d, t);
     return l.length ? l.map(displayName_).join(' + ') : 'No one assigned';
   };
   sendMail_(s.notifyEmail,
-    'Cleaning NOT done: ' + missing.length + ' task' + (missing.length === 1 ? '' : 's') + ' (' + DAY_NAMES[dayKey] + ')',
+    'Cleaning NOT done: ' + missing.length + ' task' + (missing.length === 1 ? '' : 's') + ' (' + DAY_NAMES[dayKey] + ')' + (older.length ? ' + ' + older.length + ' carried over' : ''),
     'These cleaning tasks were not fully signed off today (' + DAY_NAMES[dayKey] + ' ' + prettyDate_(date) + '). Each task needs ' + SIGNOFFS_NEEDED + ' people to sign off.\n\n' +
     missing.map(function (t) {
       var by = signed[t] || [];
       return '  • ' + t + ' — ' + whoOf(t) + (by.length ? '  (only signed off by ' + by.join(', ') + ' — needs a second sign-off)' : '  (not signed off)');
     }).join('\n') +
-    '\n\n' + (d.tasks.length - missing.length) + ' of ' + d.tasks.length + ' tasks were completed.');
+    '\n\n' + (d.tasks.length - missing.length) + ' of ' + d.tasks.length + ' tasks were completed.' +
+    '\n\nMissed tasks carry over to the next work day for the same person until they are signed off.' +
+    (older.length ? '\n\nStill not done from earlier days:\n' + older.map(function (c) {
+      return '  • ' + c.task + ' (' + DAY_NAMES[c.day] + ' ' + prettyDate_(c.date) + ') — ' + (c.people.join(' + ') || 'No one assigned') +
+        (c.recs.length ? '  (only signed off by ' + c.recs.map(function (r) { return r.doneByName; }).join(', ') + ')' : '');
+    }).join('\n') : ''));
 }
 
 /* =====================================================================
@@ -976,7 +1030,7 @@ function weekIndex_(s, date) {
   return Math.round((mon(date) - mon(base)) / (7 * 864e5));
 }
 /** The schedule for a given day/date, with jobs swapped on alternate weeks. */
-function dayFor_(s, dayKey, date) {
+function dayFor_(s, dayKey, date, raw) {
   var base = s.schedule[dayKey] || { tasks: [], who: {} };
   var who = {}; Object.keys(base.who || {}).forEach(function (k) { who[k] = base.who[k]; });
   var odd = ((weekIndex_(s, date) % 2) + 2) % 2 === 1;
@@ -985,7 +1039,66 @@ function dayFor_(s, dayKey, date) {
     var names = ts.map(function (t) { return who[t]; });
     if (names.length > 1) ts.forEach(function (t, i) { who[t] = names[(i + 1) % names.length]; });
   }
-  return { tasks: base.tasks.slice(), who: who, weekB: odd };
+  var swaps = {};
+  if (!raw) {
+    rows_('Swaps').forEach(function (w) {
+      if (w.date !== date || base.tasks.indexOf(w.task) < 0) return;
+      who[w.task] = w.toName;
+      swaps[w.task] = { fromName: w.fromName, toName: w.toName, origDate: w.origDate };
+    });
+  }
+  return { tasks: base.tasks.slice(), who: who, weekB: odd, swaps: swaps };
+}
+function addDaysYmd_(ymd, n) {
+  var d = new Date(ymd + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+/** 'Mon'…'Fri' for a yyyy-mm-dd date, or null on weekends. */
+function dayKeyOf_(ymd) {
+  var dow = (new Date(ymd + 'T12:00:00Z').getUTCDay() + 6) % 7;
+  return dow < 5 ? DAYS[dow] : null;
+}
+/** Past cleaning tasks (before `today`) that never got both sign-offs. They carry over until done. */
+var CARRY_LOOKBACK_DAYS = 42;
+function carryOver_(s, today) {
+  var out = [];
+  var from = addDaysYmd_(today, -CARRY_LOOKBACK_DAYS);
+  if (s.startDate && from < s.startDate) from = s.startDate;
+  for (var d = from; d < today; d = addDaysYmd_(d, 1)) {
+    var key = dayKeyOf_(d);
+    if (!key || s.closedDates.indexOf(d) >= 0) continue;
+    var dd = dayFor_(s, key, d);
+    dd.tasks.forEach(function (t) {
+      var recs = signoffs_(d, t);
+      if (recs.length >= SIGNOFFS_NEEDED) return;
+      var labels = assigneesOf_(dd, t);
+      out.push({ date: d, day: key, task: t, who: dd.who[t] || '', team: isTeamLabel_(dd.who[t]),
+                 people: labels.map(displayName_), users: labels.map(function (l) { var u = personUser_(l); return u ? u.username : ''; }),
+                 recs: clean_(recs) });
+    });
+  }
+  return out;
+}
+/**
+ * Pay-back: when someone covers a task that was another person's, the person they covered for
+ * takes the coverer's next turn at that same task.
+ */
+function makePayback_(s, me, task, owedLabel, origDate, coverId, today) {
+  for (var i = 1; i <= 70; i++) {
+    var d = addDaysYmd_(today, i);
+    var key = dayKeyOf_(d);
+    if (!key || s.closedDates.indexOf(d) >= 0) continue;
+    var dd = dayFor_(s, key, d);
+    if (dd.tasks.indexOf(task) < 0 || dd.swaps[task]) continue;
+    var lbl = dd.who[task];
+    if (!lbl || isTeamLabel_(lbl)) continue;
+    var u = personUser_(lbl);
+    if (!u || u.username !== me.username) continue;
+    var sw = { id: uid_(), date: d, task: task, fromName: me.name, toName: displayName_(owedLabel), coverId: coverId, origDate: origDate, createdAt: nowIso_() };
+    insert_('Swaps', sw);
+    return sw;
+  }
+  return null;
 }
 function weekSchedule_(s, week) {
   var o = {}; DAYS.forEach(function (d) { o[d] = dayFor_(s, d, week.dates[d]); }); return o;

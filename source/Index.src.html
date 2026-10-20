@@ -182,6 +182,9 @@
   .tick{ width:30px; height:30px; border-radius:50%; border:2px solid var(--line-strong); display:flex; align-items:center; justify-content:center; color:#fff; }
   .task.done .tick{ background:var(--good); border-color:var(--good); }
   .task.missed .tick{ border-color:var(--flag); }
+  .carryhead{ display:flex; align-items:center; gap:8px; margin:4px 0 6px; font-weight:800; color:var(--flag); font-size:14px; }
+  .task.carry{ background:#FFF6F5; border-radius:10px; padding-left:8px; padding-right:8px; }
+  .swaptag{ display:inline-block; font-size:11.5px; font-weight:700; background:var(--warn-soft); color:#8A5A12; border-radius:999px; padding:2px 8px; margin-left:6px; vertical-align:2px; }
   .task.half .tick{ background:var(--warn-soft); border-color:var(--warn); color:var(--warn); font-weight:800; font-size:12px; display:flex; align-items:center; justify-content:center; }
   .task .tname{ font-weight:650; font-size:15px; }
   .task.done .tname{ color:var(--ink-soft); }
@@ -1025,6 +1028,7 @@ function setupStaticSelects(){
 const SIGNOFFS_NEEDED = 2;
 function cleanRecs(date, task){ return D.cleaning.filter(r => r.date === date && r.task === task).sort((a,b) => a.doneAt < b.doneAt ? -1 : 1); }
 function cleanFor(date, task){ return cleanRecs(date, task).length >= SIGNOFFS_NEEDED; }
+function myCarry(){ return (D.carryOver || []).filter(c => (c.users || []).includes(D.me.username)); }
 function dayStats(day){
   const date = D.weekDates[day];
   const tasks = sched(day).tasks || [];
@@ -1050,6 +1054,7 @@ function renderCleaning(){
     hero.innerHTML = '<div>'
       + '<div class="eyebrow">Today · ' + esc(fmtYmdLong(D.today)) + '</div>'
       + '<h2>' + (s.notYet ? 'Cleaning starts ' + esc(fmtYmdLong(D.startDate)) : closed ? 'Clinic marked closed today' : !s.total ? 'No cleaning tasks set for today' : s.done === s.total ? 'All cleaning done ✓' : (s.total - s.done) + ' task' + (s.total - s.done === 1 ? '' : 's') + ' left today') + '</h2>'
+      + ((D.carryOver || []).length ? '<div class="assign"><strong>+ ' + D.carryOver.length + ' carried over</strong> from earlier days (see below)</div>' : '')
       + '<div class="assign">' + (team.length ? 'Today\'s team: <strong>' + esc(team.join(' + ')) + '</strong>' : 'No one is assigned today.')
       + (myTasks.length ? '<br>Your task: <strong>' + esc(myTasks.join(', ')) + '</strong>' : '') + '</div>'
       + '</div>'
@@ -1057,10 +1062,12 @@ function renderCleaning(){
       + '<circle cx="46" cy="46" r="40" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-dasharray="'+C+'" stroke-dashoffset="'+(C*(1-pct))+'"/></svg>'
       + '<div class="lbl">' + s.done + '/' + s.total + '<small>done</small></div></div>'
       + (me.role === 'admin' ? '<div class="heroactions"><button class="btn btn-white btn-sm" onclick="toggleClosed()">' + (closed ? 'Undo "closed today"' : 'Mark clinic closed today (no emails)') + '</button></div>' : '');
-    $('cleanBadge').textContent = (closed || s.notYet) ? 0 : (s.total - s.done);
-    $('cleanBadge').classList.toggle('zero', closed || s.notYet || s.total - s.done === 0);
+    const left = (closed || s.notYet) ? 0 : (s.total - s.done) + (D.carryOver || []).length;
+    $('cleanBadge').textContent = left;
+    $('cleanBadge').classList.toggle('zero', left === 0);
   } else {
-    hero.innerHTML = '<div><div class="eyebrow">' + esc(fmtYmdLong(D.today)) + '</div><h2>Enjoy the weekend</h2><div class="assign">Cleaning sign-offs run Monday through Friday.</div></div><div></div>';
+    hero.innerHTML = '<div><div class="eyebrow">' + esc(fmtYmdLong(D.today)) + '</div><h2>Enjoy the weekend</h2><div class="assign">Cleaning sign-offs run Monday through Friday.'
+      + ((D.carryOver || []).length ? '<br><strong>' + D.carryOver.length + ' task' + (D.carryOver.length === 1 ? '' : 's') + ' carried over</strong> to Monday.' : '') + '</div></div><div></div>';
     $('cleanBadge').classList.add('zero');
   }
 
@@ -1081,21 +1088,40 @@ function renderCleaning(){
   const closed = D.closedDates.includes(s.date);
   const whoTag = t => { const n = whoOf(day, t); if(!n) return ''; const mine = isMyTask(day, t);
     const txt = isTeamLabel(n) ? 'Team: ' + assigneesOf(day, t).map(personName).join(' + ') : personName(n);
-    return '<span class="whotag' + (mine ? ' me' : '') + '">' + (mine && !isTeamLabel(n) ? 'You' : esc(txt)) + '</span>'; };
+    const sw = (sched(day).swaps || {})[t];
+    return '<span class="whotag' + (mine ? ' me' : '') + '">' + (mine && !isTeamLabel(n) ? 'You' : esc(txt)) + '</span>'
+      + (sw ? '<span class="swaptag">' + esc(sw.fromName) + '\'s turn · pay-back for ' + esc(fmtYmd(sw.origDate)) + '</span>' : ''); };
   let html = '<div class="cardhead"><div><h2>' + DAY_NAMES[day] + ' · ' + esc(fmtYmd(s.date)) + '</h2>'
     + '<div class="muted">' + (team.length ? 'Buddy team: <strong>' + esc(team.join(' + ')) + '</strong>' : 'No one assigned') + (D.rotateWeekly ? ' · ' + (sched(day).weekB ? 'Week B (jobs swapped)' : 'Week A') : '') + (closed ? ' · <span class="tag gray">Closed</span>' : '') + '</div></div>'
     + (s.total ? '<span class="tag ' + (s.done === s.total ? 'green' : s.past ? 'red' : 'blue') + '">' + s.done + ' of ' + s.total + ' done</span>' : '') + '</div>';
+  const canUndo = rec => me.role === 'admin' || (rec.doneBy === me.username && new Date(rec.doneAt).toDateString() === new Date().toDateString());
+  const signLine = (rec, i) => '<div class="tmeta">' + (i === 0 ? 'Done by ' : 'Confirmed by ') + '<strong>' + esc(rec.doneByName) + '</strong> · ' + esc(fmtDateTime(rec.doneAt))
+      + (rec.offAssignment ? ' <span class="tag amber">Covered for ' + esc(rec.assignedName) + '</span>' : '')
+      + (rec.late ? ' <span class="tag gray">Late</span>' : '')
+      + (canUndo(rec) ? ' <button class="btn btn-link btn-sm" style="padding:0 4px" onclick="undoTask(\''+esc(rec.id)+'\')">Undo</button>' : '') + '</div>'
+      + (rec.comment ? '<div class="quote">“' + esc(rec.comment) + '”</div>' : '');
+  /* carried-over tasks show on today (or on any day over the weekend) */
+  const carry = D.carryOver || [];
+  if(carry.length && (day === D.todayKey || !D.todayKey)){
+    html += '<div class="carryhead">⏩ Carried over — not finished on their day</div><ul class="tasks">' + carry.map((c, ci) => {
+      const iSigned = c.recs.some(r => r.doneBy === me.username);
+      const mine = (c.users || []).includes(me.username);
+      const who = c.team ? 'Team: ' + c.people.join(' + ') : (c.people.join(' + ') || 'No one');
+      return '<li class="task carry' + (c.recs.length ? ' half' : ' missed') + '"><div class="tick">' + (c.recs.length ? '1/2' : '') + '</div>'
+        + '<div><div class="tname">' + esc(c.task) + '<span class="whotag' + (mine ? ' me' : '') + '">' + (mine && !c.team ? 'You' : esc(who)) + '</span></div>'
+        + '<div class="tmeta"><span class="tag red">Missed ' + esc(c.day) + ' ' + esc(fmtYmd(c.date)) + '</span></div>'
+        + c.recs.map(signLine).join('')
+        + (c.recs.length ? '<div class="tmeta"><span class="tag amber">Needs a 2nd sign-off</span></div>' : '') + '</div>'
+        + '<div class="tact">' + (iSigned ? '<span class="muted" style="font-size:13px">Waiting for someone else</span>'
+            : '<button class="btn btn-good" onclick="doCarry(' + ci + ')">' + (c.recs.length ? 'Confirm it\'s done' : 'I did this') + '</button>') + '</div></li>';
+    }).join('') + '</ul>';
+  }
+  if(carry.length && (day === D.todayKey || !D.todayKey)) html += '<div class="carryhead" style="color:var(--ink);margin-top:14px">' + DAY_NAMES[day] + '\'s tasks</div>';
   if(!s.total){
     html += '<div class="emptymsg">No tasks set for ' + DAY_NAMES[day] + ' yet.' + (me.role === 'admin' ? ' Add them in Admin → Cleaning schedule.' : '') + '</div>';
   } else {
     html += '<ul class="tasks">' + s.tasks.map((t, i) => {
       const recs = cleanRecs(s.date, t);
-      const canUndo = rec => me.role === 'admin' || (rec.doneBy === me.username && new Date(rec.doneAt).toDateString() === new Date().toDateString());
-      const signLine = (rec, i) => '<div class="tmeta">' + (i === 0 ? 'Done by ' : 'Confirmed by ') + '<strong>' + esc(rec.doneByName) + '</strong> · ' + esc(fmtDateTime(rec.doneAt))
-          + (rec.offAssignment ? ' <span class="tag amber">Covered for ' + esc(rec.assignedName) + '</span>' : '')
-          + (rec.late ? ' <span class="tag gray">Late</span>' : '')
-          + (canUndo(rec) ? ' <button class="btn btn-link btn-sm" style="padding:0 4px" onclick="undoTask(\''+esc(rec.id)+'\')">Undo</button>' : '') + '</div>'
-          + (rec.comment ? '<div class="quote">“' + esc(rec.comment) + '”</div>' : '');
       if(recs.length >= SIGNOFFS_NEEDED){
         return '<li class="task done"><div class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>'
           + '<div><div class="tname">' + esc(t) + whoTag(t) + '</div>' + recs.map(signLine).join('') + '</div>'
@@ -1122,37 +1148,55 @@ function renderCleaning(){
 
 function pickDay(day){ ui.day = day; renderCleaning(); }
 
+function applyClean(res){
+  if(!res) return;
+  D.cleaning = res.cleaning;
+  if(res.weekSchedule) D.weekSchedule = res.weekSchedule;
+  if(res.carryOver) D.carryOver = res.carryOver;
+  renderCleaning(); loadHistory();
+}
 async function doTask(day, idx){
   const task = sched(day).tasks[idx];
   if(task === undefined) return;
   const people = assigneesOf(day, task);
+  const team = isTeamLabel(whoOf(day, task));
+  await signOff({ day, date: D.weekDates[day], task, people: people.map(personName), mine: isMyTask(day, task), team, recs: cleanRecs(D.weekDates[day], task) });
+}
+async function doCarry(i){
+  const c = (D.carryOver || [])[i];
+  if(!c) return;
+  await signOff({ day: c.day, date: c.date, task: c.task, people: c.people, mine: (c.users || []).includes(D.me.username), team: c.team, recs: c.recs, carry: true });
+}
+async function signOff(o){
+  const { day, date, task, people } = o;
   let comment = '';
-  const first = cleanRecs(D.weekDates[day], task)[0];
+  const first = o.recs[0];
   if(first){
     if(!await confirmBox('Confirm "' + task + '" is done?', first.doneByName + ' signed this off. Check it is really done, then confirm. Every task needs two people to sign off.', 'Yes, it is done')) return;
-    const res = await act('cleanDone', { day, task, comment: '' }, 'Confirmed ✓ — task complete.');
-    if(res){ D.cleaning = res.cleaning; renderCleaning(); loadHistory(); }
+    applyClean(await act('cleanDone', { date, task, comment: '' }, 'Confirmed ✓ — task complete.'));
     return;
   }
-  if(people.length && !isMyTask(day, task)){
-    const nm = people.map(personName).join(' + ');
+  if(people.length && !o.mine){
+    const nm = people.join(' + ');
     const r = await ask({
       title: 'This is ' + nm + "'s task",
-      message: '"' + task + '" on ' + DAY_NAMES[day] + ' is assigned to ' + nm + '.\nTell Jacob why you are doing it instead. He will get an email with your note.',
+      message: '"' + task + '" on ' + DAY_NAMES[day] + ' ' + fmtYmd(date) + ' is assigned to ' + nm + '.\nTell Jacob why you are doing it instead. He will get an email with your note.'
+        + (!o.team && people.length === 1 ? '\n\nPay-back: ' + nm + ' will take your next turn at "' + task + '".' : ''),
       okText: 'Sign off & send note',
       fields: [{ id:'comment', label:'Why are you doing this task?', type:'textarea', required:true, min:3, placeholder:'e.g. Erica is out sick today', requiredMsg:'A comment is required when it is not your assigned day.' }]
     });
     if(!r) return;
     comment = r.comment;
   }
-  const res = await act('cleanDone', { day, task, comment }, (comment ? 'Signed off — Jacob was emailed your note.' : 'Signed off ✓') + ' Now a second person needs to confirm it.');
-  if(res){ D.cleaning = res.cleaning; renderCleaning(); loadHistory(); }
+  const res = await act('cleanDone', { date, task, comment }, (comment ? 'Signed off — Jacob was emailed your note.' : 'Signed off ✓') + ' Now a second person needs to confirm it.');
+  applyClean(res);
+  if(res && res.payback) toast(res.payback.toName + ' will do your ' + task + ' on ' + DAY_NAMES[dayOfYmd(res.payback.date)] + ' ' + fmtYmd(res.payback.date) + '.');
 }
+function dayOfYmd(ymd){ return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(ymd + 'T12:00:00').getDay()]; }
 
 async function undoTask(id){
   if(!await confirmBox('Undo sign-off?', 'This removes the time stamp for this task.', 'Undo', true)) return;
-  const res = await act('cleanUndo', { id }, 'Sign-off removed.');
-  if(res){ D.cleaning = res.cleaning; renderCleaning(); loadHistory(); }
+  applyClean(await act('cleanUndo', { id }, 'Sign-off removed.'));
 }
 
 async function toggleClosed(){
