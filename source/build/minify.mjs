@@ -1,0 +1,14 @@
+import fs from 'fs';
+import { createRequire } from 'module'; const require = createRequire('/home/claude/cftest/'); const { minify } = require('html-minifier-terser');
+import * as esbuild from '/home/claude/cftest/node_modules/esbuild/lib/main.js';
+const src = fs.readFileSync('dist/worker.js', 'utf8');
+const marker = '\n\nconst PAGE_HTML = ';
+const i = src.indexOf(marker);
+const code = src.slice(0, i);
+const html = JSON.parse(src.slice(i + marker.length).replace(/;\s*$/, ''));
+const mhtml = await minify(html, { collapseWhitespace: true, conservativeCollapse: true, minifyCSS: true, minifyJS: { compress: true, mangle: false }, removeComments: true });
+const full = code + '\nconst PAGE_HTML = ' + JSON.stringify(mhtml) + ';\n';
+const out = await esbuild.transform(full, { minifyWhitespace: true, minifySyntax: true, minifyIdentifiers: false, format: 'esm', target: 'es2022', legalComments: 'none' });
+fs.writeFileSync('dist/worker.min.js', out.code);
+fs.writeFileSync('dist/index.min.html', mhtml);
+console.log('html', html.length, '->', mhtml.length, ' worker', src.length, '->', out.code.length);

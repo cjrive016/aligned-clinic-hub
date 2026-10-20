@@ -1,0 +1,11 @@
+name = "aligned-clinic-hub"
+main = "worker.js"
+compatibility_date = "2026-10-17"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "aligned-clinic-hub"
+database_id = "9af5149e-aec7-43ca-bb95-a7ad2f7c2cf9"
+
+[triggers]
+crons = ["*/30 * * * *"]
