@@ -51,7 +51,8 @@ var DEFAULT_SCHEDULE = {
 var CLEANING_RULE = 'Sweeping: if you see a spot, mop it up. Don\'t leave it for mop days (Wed & Thu). ' +
   'Trash is a team job: both people on that day are responsible. Jobs swap every other week so everyone gets a turn. ' +
   'If you leave early, you still must do your task. Tasks can be done with or without patients here. ' +
-  'Do NOT push it off until the next day: new day = new task.';
+  'Do NOT push it off until the next day: new day = new task. ' +
+  'Every task needs 2 people to sign off: one person signs off, then a second person checks it and confirms.';
 
 var DEFAULT_QC_TESTS = [
   'Strep A', 'Influenza A/B', 'COVID-19', 'Flu/COVID combo', 'RSV',
@@ -63,9 +64,9 @@ var TABLES = {
   Users:    ['username', 'name', 'email', 'role', 'salt', 'hash', 'active', 'createdAt'],
   Items:    ['id', 'name', 'category', 'owner', 'qty', 'price', 'reorderAt', 'notes', 'paid', 'paidDate', 'createdAt'],
   Orders:   ['id', 'itemId', 'name', 'qty', 'price', 'assignTo', 'by', 'note', 'status', 'requestedAt', 'orderedAt', 'receivedAt'],
-  Cleaning: ['id', 'date', 'day', 'task', 'assigned', 'assignedName', 'doneBy', 'doneByName', 'doneAt', 'offAssignment', 'late', 'comment'],
+  Cleaning: ['id', 'date', 'day', 'task', 'assigned', 'assignedName', 'doneBy', 'doneByName', 'doneAt', 'offAssignment', 'late', 'comment', 'kind'],
   Meds:     ['id', 'name', 'ndc', 'lot', 'expiration', 'qty', 'location', 'notes', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'],
-  Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy'],
+  Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls'],
   QC:       ['id', 'loggedAt', 'test', 'lot', 'expiration', 'reason', 'posControl', 'negControl', 'result', 'byName', 'by', 'notes', 'voided', 'voidReason', 'voidedBy']
 };
 var KEYS = { Users: 'username' };
@@ -279,12 +280,14 @@ function a_cleanDone_(me, p) {
   var task = String(p.task || '');
   var dd = dayFor_(s, day, date);
   if (dd.tasks.indexOf(task) < 0) throw userErr_('That task is no longer on the schedule. Refresh the page.');
-  var existing = rows_('Cleaning').filter(function (r) { return r.date === date && r.task === task; });
-  if (existing.length) throw userErr_('Already signed off by ' + existing[0].doneByName + '.');
+  var existing = signoffs_(date, task);
+  if (existing.length >= SIGNOFFS_NEEDED) throw userErr_('Already signed off by ' + existing.map(function (r) { return r.doneByName; }).join(' and ') + '.');
+  if (existing.some(function (r) { return r.doneBy === me.username; })) throw userErr_('You already signed off this task. A second person needs to sign off too.');
+  var second = existing.length > 0;
 
   var labels = assigneesOf_(dd, task);
   var mine = labels.some(function (l) { var u = personUser_(l); return u && u.username === me.username; });
-  var off = labels.length > 0 && !mine;
+  var off = !second && labels.length > 0 && !mine;
   var comment = String(p.comment || '').trim();
   if (off && comment.length < 3) throw userErr_('Please add a comment telling Jacob why you are doing this task.');
   var assigned = labels.map(function (l) { var u = personUser_(l); return u ? u.username : l; }).join(',');
@@ -295,7 +298,7 @@ function a_cleanDone_(me, p) {
     id: uid_(), date: date, day: day, task: task,
     assigned: assigned, assignedName: assignedName,
     doneBy: me.username, doneByName: me.name, doneAt: nowIso_(),
-    offAssignment: off, late: late, comment: comment
+    offAssignment: off, late: late, comment: comment, kind: second ? 'check' : 'done'
   });
 
   if (off) {
@@ -312,6 +315,13 @@ function a_cleanDone_(me, p) {
     } catch (e) { console.warn('Off-day email failed: ' + e); }
   }
   return { cleaning: cleaningBetween_(week.dates.Mon, week.dates.Fri) };
+}
+
+/** How many different people must sign off each cleaning task. */
+var SIGNOFFS_NEEDED = 2;
+function signoffs_(date, task) {
+  return rows_('Cleaning').filter(function (r) { return r.date === date && r.task === task; })
+    .sort(function (a, b) { return a.doneAt < b.doneAt ? -1 : 1; });
 }
 
 function a_cleanUndo_(me, p) {
@@ -353,7 +363,7 @@ function sendMorning_(s, dayKey, date) {
       sendMail_(e.u.email,
         'Your cleaning task for ' + DAY_NAMES[dayKey] + ' (' + prettyDate_(date) + ')',
         'Good morning ' + e.u.name + ',\n\nYou are on cleaning today' + (partners.length ? ' with ' + partners.join(' and ') : '') + '. ' +
-        'Please press "I did this" in the Clinic Hub when you finish:\n\n' +
+        'Please press "I did this" in the Clinic Hub when you finish. Each task needs two people to sign off, so have your partner (or anyone working) confirm it too:\n\n' +
         e.tasks.map(function (t) { return '  • ' + t; }).join('\n') +
         '\n\nReminder: ' + CLEANING_RULE + '\n\nThank you!');
     } catch (err) { console.warn('Morning email to ' + e.u.username + ' failed: ' + err); }
@@ -377,9 +387,9 @@ function teamNames_(d) {
 function sendMissed_(s, dayKey, date) {
   var d = dayFor_(s, dayKey, date);
   if (!d.tasks.length) return;
-  var done = {};
-  rows_('Cleaning').forEach(function (r) { if (r.date === date) done[r.task] = true; });
-  var missing = d.tasks.filter(function (t) { return !done[t]; });
+  var signed = {};
+  rows_('Cleaning').forEach(function (r) { if (r.date === date) (signed[r.task] = signed[r.task] || []).push(r.doneByName); });
+  var missing = d.tasks.filter(function (t) { return (signed[t] || []).length < SIGNOFFS_NEEDED; });
   if (!missing.length) return;
   var whoOf = function (t) {
     var l = assigneesOf_(d, t);
@@ -387,8 +397,11 @@ function sendMissed_(s, dayKey, date) {
   };
   sendMail_(s.notifyEmail,
     'Cleaning NOT done: ' + missing.length + ' task' + (missing.length === 1 ? '' : 's') + ' (' + DAY_NAMES[dayKey] + ')',
-    'These cleaning tasks were not signed off today (' + DAY_NAMES[dayKey] + ' ' + prettyDate_(date) + ').\n\n' +
-    missing.map(function (t) { return '  • ' + t + ' — ' + whoOf(t); }).join('\n') +
+    'These cleaning tasks were not fully signed off today (' + DAY_NAMES[dayKey] + ' ' + prettyDate_(date) + '). Each task needs ' + SIGNOFFS_NEEDED + ' people to sign off.\n\n' +
+    missing.map(function (t) {
+      var by = signed[t] || [];
+      return '  • ' + t + ' — ' + whoOf(t) + (by.length ? '  (only signed off by ' + by.join(', ') + ' — needs a second sign-off)' : '  (not signed off)');
+    }).join('\n') +
     '\n\n' + (d.tasks.length - missing.length) + ' of ' + d.tasks.length + ' tasks were completed.');
 }
 
@@ -629,35 +642,56 @@ function notesList_() {
 function a_noteAdd_(me, p) {
   var text = str_(p.text).slice(0, 1000);
   if (!text) throw userErr_('Write something on the sticky note.');
-  var owner = findUser_(String(p.wall || '').toLowerCase());
-  if (!owner || !owner.active) throw userErr_('Pick whose wall to post it on.');
+  var names = Array.isArray(p.walls) ? p.walls : [p.wall];
+  var owners = [], seen = {};
+  names.forEach(function (w) {
+    var u = findUser_(String(w || '').toLowerCase());
+    if (u && u.active && !seen[u.username]) { seen[u.username] = true; owners.push(u); }
+  });
+  if (!owners.length) throw userErr_('Pick at least one wall to post it on.');
   var color = NOTE_COLORS.indexOf(p.color) >= 0 ? p.color : 'yellow';
-  var n = { id: uid_(), wall: owner.username, text: text, color: color, fromUser: me.username, fromName: me.name,
-            createdAt: nowIso_(), seenAt: owner.username === me.username ? nowIso_() : '', done: false, doneAt: '', doneBy: '' };
-  insert_('Notes', n);
-  if (owner.username !== me.username && owner.email) {
-    try {
-      sendMail_(owner.email, 'New sticky note from ' + me.name,
-        'Hi ' + owner.name + ',\n\n' + me.name + ' left a sticky note on your wall in the Clinic Hub:\n\n"' + text + '"\n\n' +
-        'Open the Sticky Notes tab to see it and mark it done.');
-    } catch (e) { console.warn('Note email failed: ' + e); }
-  }
+  var groupId = owners.length > 1 ? uid_() : '';
+  var wallList = owners.map(function (u) { return u.username; }).join(',');
+  var now = nowIso_();
+  owners.forEach(function (owner) {
+    insert_('Notes', { id: uid_(), wall: owner.username, text: text, color: color, fromUser: me.username, fromName: me.name,
+      createdAt: now, seenAt: owner.username === me.username ? now : '', done: false, doneAt: '', doneBy: '',
+      groupId: groupId, walls: groupId ? wallList : '' });
+    if (owner.username !== me.username && owner.email) {
+      var others = owners.filter(function (o) { return o.username !== owner.username; }).map(function (o) { return o.name; });
+      try {
+        sendMail_(owner.email, 'New sticky note from ' + me.name,
+          'Hi ' + owner.name + ',\n\n' + me.name + ' left a sticky note on your wall in the Clinic Hub' +
+          (others.length ? ' (also posted to ' + others.join(', ') + ')' : '') + ':\n\n"' + text + '"\n\n' +
+          'Open the Sticky Notes tab to see it and mark it done.');
+      } catch (e) { console.warn('Note email failed: ' + e); }
+    }
+  });
   return { notes: notesList_() };
 }
-function noteAllowed_(me, n) { return me.role === 'admin' || n.wall === me.username || n.fromUser === me.username; }
+/** A note posted to several walls is one note: its copies share a groupId. */
+function noteGroup_(n) {
+  if (!n.groupId) return [n];
+  return rows_('Notes').filter(function (x) { return x.groupId === n.groupId; });
+}
+function noteAllowed_(me, n) {
+  return me.role === 'admin' || n.fromUser === me.username ||
+    noteGroup_(n).some(function (x) { return x.wall === me.username; });
+}
 function a_noteDone_(me, p) {
   var n = find_('Notes', p.id);
   if (!n) throw userErr_('That note was already removed. Refresh the page.');
   if (!noteAllowed_(me, n)) throw userErr_('Only the person whose wall it is (or who wrote it) can change this note.');
   var done = p.done !== false;
-  update_('Notes', n.id, { done: done, doneAt: done ? nowIso_() : '', doneBy: done ? me.name : '' });
+  var at = done ? nowIso_() : '';
+  noteGroup_(n).forEach(function (x) { update_('Notes', x.id, { done: done, doneAt: at, doneBy: done ? me.name : '' }); });
   return { notes: notesList_() };
 }
 function a_noteDelete_(me, p) {
   var n = find_('Notes', p.id);
   if (n) {
     if (!noteAllowed_(me, n)) throw userErr_('Only the person whose wall it is (or who wrote it) can delete this note.');
-    remove_('Notes', n.id);
+    noteGroup_(n).forEach(function (x) { remove_('Notes', x.id); });
   }
   return { notes: notesList_() };
 }

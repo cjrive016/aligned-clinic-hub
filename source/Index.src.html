@@ -75,6 +75,12 @@
   .sticky.isdone{ opacity:.55; transform:none; }
   .sticky.isdone .ntext{ text-decoration:line-through; }
   .colorpick{ display:flex; gap:8px; }
+  .wallpick{ display:flex; flex-wrap:wrap; gap:6px; }
+  .wallpick label{ display:inline-flex; align-items:center; gap:6px; margin:0; padding:6px 11px; border:1px solid var(--line, #D8E0E8); border-radius:999px; font-size:13.5px; font-weight:600; cursor:pointer; background:#fff; text-transform:none; letter-spacing:normal; white-space:nowrap; color:var(--ink); }
+  .wallpick label.on{ background:var(--brand-soft); border-color:var(--brand-dark); color:var(--brand-dark); }
+  .wallpick input{ margin:0; }
+  .wallpick .allbtn{ border:none; background:none; color:var(--brand-dark); font-weight:700; font-size:13px; cursor:pointer; padding:6px 4px; }
+  .sticky .nalso{ font-size:12px; color:#555; margin-top:4px; }
   .colorpick button{ width:30px; height:30px; border-radius:7px; border:2px solid transparent; cursor:pointer; }
   .colorpick button.on{ border-color:var(--ink); }
   .walltabs{ display:flex; gap:6px; flex-wrap:wrap; }
@@ -176,6 +182,7 @@
   .tick{ width:30px; height:30px; border-radius:50%; border:2px solid var(--line-strong); display:flex; align-items:center; justify-content:center; color:#fff; }
   .task.done .tick{ background:var(--good); border-color:var(--good); }
   .task.missed .tick{ border-color:var(--flag); }
+  .task.half .tick{ background:var(--warn-soft); border-color:var(--warn); color:var(--warn); font-weight:800; font-size:12px; display:flex; align-items:center; justify-content:center; }
   .task .tname{ font-weight:650; font-size:15px; }
   .task.done .tname{ color:var(--ink-soft); }
   .task .tmeta{ font-size:12.5px; color:var(--ink-soft); margin-top:2px; }
@@ -544,7 +551,7 @@
       <div class="cardhead"><h2>Post a sticky note</h2><span class="muted">The person gets an email and a red flag when they sign in</span></div>
       <div class="formgrid">
         <div class="span2"><label for="n-text">Note</label><textarea id="n-text" rows="3" maxlength="1000" placeholder="e.g. Can you order more exam table paper?"></textarea></div>
-        <div><label for="n-wall">Put it on whose wall?</label><select id="n-wall"></select></div>
+        <div class="span2"><label>Put it on whose wall? <span class="muted" style="font-weight:400">— pick one or more</span></label><div class="wallpick" id="n-walls"></div></div>
         <div><label>Color</label><div class="colorpick" id="n-colors"></div></div>
       </div>
       <div class="formactions"><button class="btn btn-primary" id="noteBtn" onclick="addNote()">Post note</button></div>
@@ -894,20 +901,23 @@ function renderNotes(){
   const owner = users.find(u => u.username === ui.wall);
   $('wallTitle').textContent = ui.wall === D.me.username ? 'My wall' : (owner ? owner.name + "'s wall" : 'Wall');
   // post form
-  const sel = $('n-wall'); const keep = sel.value;
-  sel.innerHTML = users.map(u => '<option value="' + esc(u.username) + '">' + (u.username === D.me.username ? 'Me (' + esc(u.name) + ')' : esc(u.name)) + '</option>').join('');
-  sel.value = (keep && users.find(u => u.username === keep)) ? keep : ui.wall;
+  if(!ui.noteWalls) ui.noteWalls = [ui.wall];
+  ui.noteWalls = ui.noteWalls.filter(w => users.find(u => u.username === w));
+  $('n-walls').innerHTML = users.map(u => { const on = ui.noteWalls.includes(u.username);
+      return '<label class="' + (on ? 'on' : '') + '"><input type="checkbox" ' + (on ? 'checked' : '') + ' onchange="toggleNoteWall(\'' + esc(u.username) + '\', this.checked)">' + (u.username === D.me.username ? 'Me' : esc(u.name)) + '</label>'; }).join('')
+    + '<button type="button" class="allbtn" onclick="allNoteWalls()">' + (ui.noteWalls.length === users.length ? 'Clear' : 'Everyone') + '</button>';
   $('n-colors').innerHTML = Object.keys(NOTE_COLORS).map(c => '<button type="button" title="' + c + '" class="' + (c === noteColor ? 'on' : '') + '" style="background:' + NOTE_COLORS[c] + '" onclick="noteColor=\'' + c + '\'; renderNotes()"></button>').join('');
   // notes
   const mine = notes.filter(n => n.wall === ui.wall).sort((a,b) => a.createdAt < b.createdAt ? 1 : -1);
   const card = n => {
-    const canEdit = D.me.role === 'admin' || n.wall === D.me.username || n.fromUser === D.me.username;
+    const canEdit = D.me.role === 'admin' || n.wall === D.me.username || n.fromUser === D.me.username || String(n.walls || '').split(',').includes(D.me.username);
     const isNew = n.wall === D.me.username && !n.seenAt && !n.done;
     return '<div class="sticky ' + esc(n.color || 'yellow') + (n.done ? ' isdone' : '') + '">'
       + (isNew ? '<span class="newflag">NEW</span>' : '')
       + '<div class="ntext">' + esc(n.text) + '</div>'
       + '<div class="nmeta">From <strong>' + esc(n.fromName) + '</strong> · ' + esc(fmtDateTime(n.createdAt))
       + (n.done ? '<br>Done by ' + esc(n.doneBy) + ' · ' + esc(fmtDateTime(n.doneAt)) : '') + '</div>'
+      + (n.walls ? '<div class="nalso">Also on: ' + esc(String(n.walls).split(',').filter(w => w !== n.wall).map(w => w === D.me.username ? 'You' : userName(w)).join(', ')) + '</div>' : '')
       + (canEdit ? '<div class="nact">' + (n.done ? '<button onclick="noteDone(\'' + esc(n.id) + '\', false)">Undo</button>' : '<button onclick="noteDone(\'' + esc(n.id) + '\', true)">✓ Done</button>')
         + '<button onclick="noteDelete(\'' + esc(n.id) + '\')">Delete</button></div>' : '')
       + '</div>';
@@ -921,16 +931,28 @@ function renderNotes(){
 async function addNote(){
   const text = $('n-text').value.trim();
   if(!text){ toast('Write something on the sticky note.', true); return; }
-  const wall = $('n-wall').value;
-  const res = await act('noteAdd', { text, wall, color: noteColor }, wall === D.me.username ? 'Note posted.' : 'Note posted. ' + userName(wall) + ' was emailed.');
-  if(res){ D.notes = res.notes; $('n-text').value = ''; ui.wall = wall; renderNotes(); }
+  const walls = (ui.noteWalls || []).slice();
+  if(!walls.length){ toast('Pick at least one wall.', true); return; }
+  const others = walls.filter(w => w !== D.me.username).map(userName);
+  const res = await act('noteAdd', { text, walls, color: noteColor }, others.length ? 'Note posted. ' + others.join(', ') + (others.length === 1 ? ' was' : ' were') + ' emailed.' : 'Note posted.');
+  if(res){ D.notes = res.notes; $('n-text').value = ''; ui.wall = walls.includes(ui.wall) ? ui.wall : walls[0]; renderNotes(); }
+}
+function toggleNoteWall(w, on){
+  ui.noteWalls = (ui.noteWalls || []).filter(x => x !== w);
+  if(on) ui.noteWalls.push(w);
+  renderNotes();
+}
+function allNoteWalls(){
+  const all = (D.users || []).map(u => u.username);
+  ui.noteWalls = (ui.noteWalls || []).length === all.length ? [] : all;
+  renderNotes();
 }
 async function noteDone(id, done){
   const res = await act('noteDone', { id, done }, done ? 'Marked done ✓' : 'Moved back to open.');
   if(res){ D.notes = res.notes; renderNotes(); }
 }
 async function noteDelete(id){
-  if(!await confirmBox('Delete this sticky note?', 'It will be removed for everyone.', 'Delete', true)) return;
+  if(!await confirmBox('Delete this sticky note?', 'It will be removed for everyone, from every wall it was posted on.', 'Delete', true)) return;
   const res = await act('noteDelete', { id }, 'Note deleted.');
   if(res){ D.notes = res.notes; renderNotes(); }
 }
@@ -1000,7 +1022,9 @@ function setupStaticSelects(){
 /* =========================================================
    CLEANING
    ========================================================= */
-function cleanFor(date, task){ return D.cleaning.find(r => r.date === date && r.task === task); }
+const SIGNOFFS_NEEDED = 2;
+function cleanRecs(date, task){ return D.cleaning.filter(r => r.date === date && r.task === task).sort((a,b) => a.doneAt < b.doneAt ? -1 : 1); }
+function cleanFor(date, task){ return cleanRecs(date, task).length >= SIGNOFFS_NEEDED; }
 function dayStats(day){
   const date = D.weekDates[day];
   const tasks = sched(day).tasks || [];
@@ -1065,17 +1089,25 @@ function renderCleaning(){
     html += '<div class="emptymsg">No tasks set for ' + DAY_NAMES[day] + ' yet.' + (me.role === 'admin' ? ' Add them in Admin → Cleaning schedule.' : '') + '</div>';
   } else {
     html += '<ul class="tasks">' + s.tasks.map((t, i) => {
-      const rec = cleanFor(s.date, t);
-      if(rec){
-        const canUndo = me.role === 'admin' || (rec.doneBy === me.username && new Date(rec.doneAt).toDateString() === new Date().toDateString());
-        return '<li class="task done"><div class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>'
-          + '<div><div class="tname">' + esc(t) + whoTag(t) + '</div>'
-          + '<div class="tmeta">Done by <strong>' + esc(rec.doneByName) + '</strong> · ' + esc(fmtDateTime(rec.doneAt))
+      const recs = cleanRecs(s.date, t);
+      const canUndo = rec => me.role === 'admin' || (rec.doneBy === me.username && new Date(rec.doneAt).toDateString() === new Date().toDateString());
+      const signLine = (rec, i) => '<div class="tmeta">' + (i === 0 ? 'Done by ' : 'Confirmed by ') + '<strong>' + esc(rec.doneByName) + '</strong> · ' + esc(fmtDateTime(rec.doneAt))
           + (rec.offAssignment ? ' <span class="tag amber">Covered for ' + esc(rec.assignedName) + '</span>' : '')
-          + (rec.late ? ' <span class="tag gray">Late</span>' : '') + '</div>'
-          + (rec.comment ? '<div class="quote">“' + esc(rec.comment) + '”</div>' : '')
-          + '</div>'
-          + '<div class="tact">' + (canUndo ? '<button class="btn btn-link btn-sm" onclick="undoTask(\''+esc(rec.id)+'\')">Undo</button>' : '') + '</div></li>';
+          + (rec.late ? ' <span class="tag gray">Late</span>' : '')
+          + (canUndo(rec) ? ' <button class="btn btn-link btn-sm" style="padding:0 4px" onclick="undoTask(\''+esc(rec.id)+'\')">Undo</button>' : '') + '</div>'
+          + (rec.comment ? '<div class="quote">“' + esc(rec.comment) + '”</div>' : '');
+      if(recs.length >= SIGNOFFS_NEEDED){
+        return '<li class="task done"><div class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>'
+          + '<div><div class="tname">' + esc(t) + whoTag(t) + '</div>' + recs.map(signLine).join('') + '</div>'
+          + '<div class="tact"></div></li>';
+      }
+      if(recs.length){
+        const iSigned = recs.some(r => r.doneBy === me.username);
+        return '<li class="task half' + (s.past ? ' missed' : '') + '"><div class="tick">1/2</div>'
+          + '<div><div class="tname">' + esc(t) + whoTag(t) + '</div>' + recs.map(signLine).join('')
+          + '<div class="tmeta"><span class="tag amber">Needs a 2nd sign-off</span></div></div>'
+          + '<div class="tact">' + (iSigned ? '<span class="muted" style="font-size:13px">Waiting for someone else</span>'
+              : '<button class="btn btn-good" onclick="doTask(\''+day+'\','+i+')">Confirm it\'s done</button>') + '</div></li>';
       }
       if(s.future){
         return '<li class="task"><div class="tick"></div><div><div class="tname">' + esc(t) + whoTag(t) + '</div><div class="tmeta">' + (s.notYet ? 'Cleaning starts ' + esc(fmtYmdLong(D.startDate)) : 'Upcoming') + '</div></div><div class="tact"></div></li>';
@@ -1095,6 +1127,13 @@ async function doTask(day, idx){
   if(task === undefined) return;
   const people = assigneesOf(day, task);
   let comment = '';
+  const first = cleanRecs(D.weekDates[day], task)[0];
+  if(first){
+    if(!await confirmBox('Confirm "' + task + '" is done?', first.doneByName + ' signed this off. Check it is really done, then confirm. Every task needs two people to sign off.', 'Yes, it is done')) return;
+    const res = await act('cleanDone', { day, task, comment: '' }, 'Confirmed ✓ — task complete.');
+    if(res){ D.cleaning = res.cleaning; renderCleaning(); loadHistory(); }
+    return;
+  }
   if(people.length && !isMyTask(day, task)){
     const nm = people.map(personName).join(' + ');
     const r = await ask({
@@ -1106,7 +1145,7 @@ async function doTask(day, idx){
     if(!r) return;
     comment = r.comment;
   }
-  const res = await act('cleanDone', { day, task, comment }, comment ? 'Signed off — Jacob was emailed your note.' : 'Signed off ✓');
+  const res = await act('cleanDone', { day, task, comment }, (comment ? 'Signed off — Jacob was emailed your note.' : 'Signed off ✓') + ' Now a second person needs to confirm it.');
   if(res){ D.cleaning = res.cleaning; renderCleaning(); loadHistory(); }
 }
 
@@ -1131,7 +1170,7 @@ async function loadHistory(){
       '<tr><td>' + esc(fmtYmd(r.date)) + ' <span class="muted">' + esc(r.day) + '</span></td>'
       + '<td><strong>' + esc(r.task) + '</strong></td>'
       + '<td>' + esc(r.assignedName || '—') + '</td>'
-      + '<td>' + esc(r.doneByName) + (r.offAssignment ? ' <span class="tag amber">Covered</span>' : '') + (r.late ? ' <span class="tag gray">Late</span>' : '') + '</td>'
+      + '<td>' + esc(r.doneByName) + (r.kind === 'check' ? ' <span class="tag blue">2nd sign-off</span>' : '') + (r.offAssignment ? ' <span class="tag amber">Covered</span>' : '') + (r.late ? ' <span class="tag gray">Late</span>' : '') + '</td>'
       + '<td>' + esc(fmtDateTime(r.doneAt)) + '</td>'
       + '<td>' + (r.comment ? '<span class="sub2">“' + esc(r.comment) + '”</span>' : '') + '</td></tr>'
     ).join('') : '<tr><td colspan="6" class="empty">No sign-offs in ' + esc(monthLabel(m)) + '.</td></tr>';
@@ -1141,8 +1180,8 @@ async function loadHistory(){
 }
 
 function exportHistoryCSV(){
-  const rows = [['Date','Day','Task','Assigned','Done by','Done at','Off-assignment','Late','Comment']];
-  ui.history.forEach(r => rows.push([r.date, r.day, r.task, r.assignedName, r.doneByName, fmtDateTime(r.doneAt), r.offAssignment ? 'Yes' : '', r.late ? 'Yes' : '', r.comment]));
+  const rows = [['Date','Day','Task','Assigned','Signed off by','Sign-off','Signed at','Off-assignment','Late','Comment']];
+  ui.history.forEach(r => rows.push([r.date, r.day, r.task, r.assignedName, r.doneByName, r.kind === 'check' ? '2nd (confirm)' : '1st', fmtDateTime(r.doneAt), r.offAssignment ? 'Yes' : '', r.late ? 'Yes' : '', r.comment]));
   downloadCSV(rows, 'cleaning-' + ($('histMonth').value || thisMonth()) + '.csv');
 }
 
