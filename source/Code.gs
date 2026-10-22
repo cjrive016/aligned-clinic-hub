@@ -68,13 +68,13 @@ var TABLES = {
   Cleaning: ['id', 'date', 'day', 'task', 'assigned', 'assignedName', 'doneBy', 'doneByName', 'doneAt', 'offAssignment', 'late', 'comment', 'kind'],
   Meds:     ['id', 'name', 'ndc', 'lot', 'expiration', 'qty', 'location', 'notes', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'],
   Swaps:    ['id', 'date', 'task', 'fromName', 'toName', 'coverId', 'origDate', 'createdAt'],
-  Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls', 'deleted', 'deletedAt', 'deletedBy', 'editedAt'],
+  Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls', 'deleted', 'deletedAt', 'deletedBy', 'editedAt', 'authorFlag'],
   NoteComments: ['id', 'noteKey', 'text', 'byUser', 'byName', 'at', 'kind'],
   QC:       ['id', 'loggedAt', 'test', 'lot', 'expiration', 'reason', 'posControl', 'negControl', 'result', 'byName', 'by', 'notes', 'voided', 'voidReason', 'voidedBy']
 };
 var KEYS = { Users: 'username' };
 var NUM_FIELDS = { qty: 1, price: 1, reorderAt: 1 };
-var BOOL_FIELDS = { paid: 1, active: 1, offAssignment: 1, late: 1, voided: 1, done: 1, deleted: 1 };
+var BOOL_FIELDS = { paid: 1, active: 1, offAssignment: 1, late: 1, voided: 1, done: 1, deleted: 1, authorFlag: 1 };
 var DATE_ONLY = { date: 1, expiration: 1 };
 
 /* =====================================================================
@@ -760,7 +760,7 @@ function a_noteAdd_(me, p) {
   owners.forEach(function (owner) {
     insert_('Notes', { id: uid_(), wall: owner.username, text: text, color: color, fromUser: me.username, fromName: me.name,
       createdAt: now, seenAt: owner.username === me.username ? now : '', done: false, doneAt: '', doneBy: '',
-      groupId: groupId, walls: groupId ? wallList : '', deleted: false, deletedAt: '', deletedBy: '', editedAt: '' });
+      groupId: groupId, walls: groupId ? wallList : '', deleted: false, deletedAt: '', deletedBy: '', editedAt: '', authorFlag: false });
     if (owner.username !== me.username && owner.email) {
       var others = owners.filter(function (o) { return o.username !== owner.username; }).map(function (o) { return o.name; });
       try {
@@ -798,6 +798,11 @@ function a_noteComment_(me, p) {
   insert_('NoteComments', { id: uid_(), noteKey: noteKey_(n), text: text, byUser: me.username, byName: me.name, at: nowIso_(), kind: 'comment' });
   // flag it as new again for the other walls
   noteGroup_(n).forEach(function (x) { if (x.wall !== me.username) update_('Notes', x.id, { seenAt: '' }); });
+  // and for the person who wrote the note (when it isn't on their own wall)
+  var group = noteGroup_(n);
+  var authorOnWall = group.some(function (x) { return x.wall === n.fromUser; });
+  var flagAuthor = n.fromUser !== me.username && !authorOnWall;
+  group.forEach(function (x) { update_('Notes', x.id, { authorFlag: flagAuthor }); });
   noteNotify_(me, n, me.name + ' commented on a sticky note',
     me.name + ' commented on the sticky note:\n\n"' + n.text + '"\n\nComment: "' + text + '"');
   return noteOut_(me);
@@ -840,8 +845,12 @@ function a_notePurge_(me, p) {
   }
   return noteOut_(me);
 }
-function a_noteSeen_(me) {
+function a_noteSeen_(me, p) {
   var now = nowIso_();
+  if (p && p.view === 'sent') {
+    rows_('Notes').forEach(function (n) { if (n.fromUser === me.username && n.authorFlag) update_('Notes', n.id, { authorFlag: false }); });
+    return noteOut_(me);
+  }
   rows_('Notes').forEach(function (n) { if (n.wall === me.username && !n.seenAt) update_('Notes', n.id, { seenAt: now }); });
   return noteOut_(me);
 }

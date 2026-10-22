@@ -355,7 +355,7 @@
 
 <main>
   <!-- ================= CLEANING ================= -->
-  <div class="notebar hidden" id="noteBar" onclick="showTab('notes'); pickWall(D.me.username)"><span>📌 <span id="noteBarText"></span></span><button class="btn btn-white btn-sm">Open</button></div>
+  <div class="notebar hidden" id="noteBar" onclick="openNewNotes()"><span>📌 <span id="noteBarText"></span></span><button class="btn btn-white btn-sm">Open</button></div>
   <section id="tab-cleaning" class="tab active">
     <div class="hero" id="cleanHero"></div>
     <div class="rulebar" id="cleanRule"></div>
@@ -893,7 +893,16 @@ const noteArchived = n => !!(n.done || n.deleted);
 const noteKey = n => n.groupId || n.id;
 const noteWalls = n => n.walls ? String(n.walls).split(',') : [n.wall];
 function myNewNotes(){ return (D.notes || []).filter(n => n.wall === D.me.username && !noteArchived(n) && !n.seenAt); }
-function pickWall(v){ ui.noteView = v; renderNotes(); if(v === 'mine' && ui.tab === 'notes') markNotesSeen(); }
+/** replies on notes I left on someone else's wall */
+function myNewReplies(){ return dedupe((D.notes || []).filter(n => n.fromUser === D.me.username && n.authorFlag && !noteArchived(n))); }
+function pickWall(v){ ui.noteView = v; renderNotes(); if(ui.tab === 'notes'){ if(v === 'mine') markNotesSeen(); if(v === 'sent') markRepliesSeen(); } }
+function openNewNotes(){ showTab('notes'); pickWall(myNewNotes().length || !myNewReplies().length ? 'mine' : 'sent'); }
+let replyTimer = null;
+function markRepliesSeen(){
+  if(!myNewReplies().length) return;
+  clearTimeout(replyTimer);
+  replyTimer = setTimeout(async () => { try { const r = await call('noteSeen', { view:'sent' }); if(r){ applyNotes(r); } } catch(e){} }, 4000);
+}
 let seenTimer = null;
 function markNotesSeen(){
   if(!myNewNotes().length) return;
@@ -902,10 +911,13 @@ function markNotesSeen(){
 }
 function applyNotes(r){ if(!r) return; D.notes = r.notes; D.noteComments = r.noteComments || []; if(ui.tab === 'notes') renderNotes(); else renderNotesBadges(); }
 function renderNotesBadges(){
-  const fresh = myNewNotes().length;
-  $('noteBadge').textContent = fresh; $('noteBadge').classList.toggle('zero', fresh === 0);
-  $('noteBar').classList.toggle('hidden', fresh === 0 || ui.tab === 'notes');
-  $('noteBarText').textContent = 'You have ' + fresh + ' new sticky note' + (fresh === 1 ? '' : 's') + ' (or comments) on your wall';
+  const fresh = myNewNotes().length, replies = myNewReplies().length, total = fresh + replies;
+  $('noteBadge').textContent = total; $('noteBadge').classList.toggle('zero', total === 0);
+  $('noteBar').classList.toggle('hidden', total === 0 || ui.tab === 'notes');
+  const parts = [];
+  if(fresh) parts.push(fresh + ' new sticky note' + (fresh === 1 ? '' : 's') + ' (or comments) on your wall');
+  if(replies) parts.push(replies + ' new repl' + (replies === 1 ? 'y' : 'ies') + ' on notes you left');
+  $('noteBarText').textContent = 'You have ' + parts.join(' and ');
 }
 /** one card per note, even if it was posted to several walls */
 function dedupe(list){ const seen = {}; return list.filter(n => { const k = noteKey(n); if(seen[k]) return false; seen[k] = 1; return true; }); }
@@ -923,7 +935,8 @@ function renderNotes(){
   const allList = ui.allWall ? allOpen.filter(n => n.wall === ui.allWall) : dedupe(allOpen);
   const newCount = myNewNotes().length;
   const tab = (v, label, cnt, red) => '<button class="' + (ui.noteView === v ? 'on' : '') + '" onclick="pickWall(\'' + v + '\')">' + label + (cnt ? '<span class="cnt"' + (red ? ' style="background:var(--flag);color:#fff"' : '') + '>' + cnt + '</span>' : '') + '</button>';
-  $('wallTabs').innerHTML = tab('mine', 'My wall', newCount || mineList.length, !!newCount) + tab('sent', 'Notes I left', sentList.length)
+  const replyCount = myNewReplies().length;
+  $('wallTabs').innerHTML = tab('mine', 'My wall', newCount || mineList.length, !!newCount) + tab('sent', 'Notes I left', replyCount || sentList.length, !!replyCount)
     + (admin ? tab('all', 'All walls (admin)', dedupe(allOpen).length) : '') + tab('archive', 'Archive', 0);
   $('wallTitle').textContent = ui.noteView === 'mine' ? 'My wall' : ui.noteView === 'sent' ? 'Notes I left for others' : ui.noteView === 'all' ? 'All walls' : 'Archive';
   $('wallHint').innerHTML = ui.noteView === 'all'
@@ -946,9 +959,10 @@ function renderNotes(){
   const card = n => {
     const arch = noteArchived(n);
     const canClose = !arch && (admin || n.fromUser === me || noteWalls(n).includes(me));
-    const isNew = ui.noteView === 'mine' && n.wall === me && !n.seenAt && !arch;
     const all = comments.filter(c => c.noteKey === noteKey(n)).sort((a,b) => a.at < b.at ? -1 : 1);
     const adds = all.filter(c => c.kind === 'addition'), cs = all.filter(c => c.kind !== 'addition');
+    const isNew = !arch && ((ui.noteView === 'mine' && n.wall === me && !n.seenAt) || (ui.noteView === 'sent' && n.fromUser === me && n.authorFlag));
+    const newLabel = cs.some(c => c.byUser !== me) ? 'NEW REPLY' : 'NEW';
     const id = esc(n.id);
     let acts = '';
     if(!arch){
@@ -960,7 +974,7 @@ function renderNotes(){
       acts = '<button onclick="noteDone(\'' + id + '\', false)">↺ Reopen</button><button onclick="notePurge(\'' + id + '\')">Remove forever</button>';
     }
     return '<div class="sticky ' + esc(n.color || 'yellow') + (n.deleted ? ' isdel' : n.done ? ' isdone' : '') + '">'
-      + (isNew ? '<span class="newflag">NEW</span>' : '')
+      + (isNew ? '<span class="newflag">' + newLabel + '</span>' : '')
       + (arch ? '<div class="nstatus ' + (n.deleted ? 'del' : 'ok') + '">' + (n.deleted ? '🗑 Deleted by ' + esc(n.deletedBy) + ' · ' + esc(fmtDateTime(n.deletedAt)) : '✓ Completed by ' + esc(n.doneBy) + ' · ' + esc(fmtDateTime(n.doneAt))) + '</div>' : '')
       + '<div class="ntext">' + esc(n.text) + '</div>'
       + adds.map(c => '<div class="nadd">+ ' + esc(c.text) + '<small>added ' + esc(fmtDateTime(c.at)) + '</small></div>').join('')
@@ -1009,7 +1023,7 @@ async function noteComment(id){
   const r = await ask({ title:'Add a comment', message:'"' + n.text.slice(0, 140) + (n.text.length > 140 ? '…' : '') + '"', okText:'Post comment',
     fields:[{ id:'text', label:'Comment', type:'textarea', placeholder:'e.g. Ordered — should be here Friday', required:true }] });
   if(!r) return;
-  applyNotes(await act('noteComment', { id, text: r.text }, 'Comment added. Everyone on the note was emailed.'));
+  applyNotes(await act('noteComment', { id, text: r.text }, 'Comment added. Everyone on the note was emailed and will see it flagged.'));
 }
 async function noteDone(id, done){
   if(done && !await confirmBox('Mark this note done?', 'It moves to the archive for everyone on it. Only an admin can reopen it.', 'Mark done')) return;
@@ -1029,7 +1043,7 @@ function showTab(name, silent){
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
   document.querySelectorAll('#mainnav button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   if(name === 'admin' && !silent && D && D.me.role === 'admin') renderAdmin();
-  if(D && name === 'notes'){ renderNotes(); if((ui.noteView || 'mine') === 'mine') markNotesSeen(); }
+  if(D && name === 'notes'){ renderNotes(); if((ui.noteView || 'mine') === 'mine') markNotesSeen(); if(ui.noteView === 'sent') markRepliesSeen(); }
   if(D) renderNotesBadges();
   if(!silent) window.scrollTo({ top:0 });
 }
