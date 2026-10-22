@@ -70,6 +70,7 @@ var TABLES = {
   Swaps:    ['id', 'date', 'task', 'fromName', 'toName', 'coverId', 'origDate', 'createdAt'],
   Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls', 'deleted', 'deletedAt', 'deletedBy', 'editedAt', 'authorFlag'],
   NoteComments: ['id', 'noteKey', 'text', 'byUser', 'byName', 'at', 'kind'],
+  Events:   ['id', 'date', 'endDate', 'kind', 'title', 'time', 'notes', 'byUser', 'byName', 'createdAt', 'updatedAt'],
   QC:       ['id', 'loggedAt', 'test', 'lot', 'expiration', 'reason', 'posControl', 'negControl', 'result', 'byName', 'by', 'notes', 'voided', 'voidReason', 'voidedBy']
 };
 var KEYS = { Users: 'username' };
@@ -207,6 +208,8 @@ var ACTIONS = {
   noteSeen:         { fn: a_noteSeen_, write: true },
   noteEdit:         { fn: a_noteEdit_, write: true },
   noteComment:      { fn: a_noteComment_, write: true },
+  eventSave:        { fn: a_eventSave_, write: true },
+  eventDelete:      { fn: a_eventDelete_, write: true },
   notePurge:        { fn: a_notePurge_, write: true, admin: true },
   medDelete:        { fn: a_medDelete_, write: true, admin: true },
 
@@ -245,6 +248,7 @@ function a_bootstrap_(me) {
     orders: clean_(rows_('Orders')),
     qc: clean_(rows_('QC')),
     meds: clean_(rows_('Meds')),
+    events: clean_(rows_('Events')),
     notes: notesList_(me).notes,
     noteComments: notesList_(me).noteComments,
     qcRetentionDays: CONFIG.QC_RETENTION_DAYS,
@@ -853,6 +857,43 @@ function a_noteSeen_(me, p) {
   }
   rows_('Notes').forEach(function (n) { if (n.wall === me.username && !n.seenAt) update_('Notes', n.id, { seenAt: now }); });
   return noteOut_(me);
+}
+
+/* =====================================================================
+   CALENDAR
+   - Anyone can add days off, drug rep lunches, meetings, etc.
+   - Only the person who added an entry (or an admin) can change or delete it.
+   ===================================================================== */
+var EVENT_KINDS = ['off', 'rep', 'meeting', 'other'];
+function eventsOut_() { return { events: clean_(rows_('Events')) }; }
+function isYmd_(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')); }
+function a_eventSave_(me, p) {
+  var kind = EVENT_KINDS.indexOf(p.kind) >= 0 ? p.kind : 'other';
+  var date = str_(p.date), endDate = str_(p.endDate);
+  if (!isYmd_(date)) throw userErr_('Pick a date.');
+  if (endDate && !isYmd_(endDate)) endDate = '';
+  if (endDate && endDate < date) throw userErr_('The "through" date is before the start date.');
+  if (endDate === date) endDate = '';
+  var title = str_(p.title).slice(0, 120);
+  if (!title && kind !== 'off') throw userErr_(kind === 'rep' ? 'Enter the rep or company name.' : 'Enter what it is.');
+  var fields = { date: date, endDate: endDate, kind: kind, title: title, time: str_(p.time).slice(0, 40), notes: str_(p.notes).slice(0, 500), updatedAt: nowIso_() };
+  if (p.id) {
+    var ev = find_('Events', p.id);
+    if (!ev) throw userErr_('That calendar entry was removed. Refresh the page.');
+    if (ev.byUser !== me.username && me.role !== 'admin') throw userErr_('Only ' + ev.byName + ' (or an admin) can change this entry.');
+    update_('Events', ev.id, fields);
+  } else {
+    fields.id = uid_(); fields.byUser = me.username; fields.byName = me.name; fields.createdAt = nowIso_();
+    insert_('Events', fields);
+  }
+  return eventsOut_();
+}
+function a_eventDelete_(me, p) {
+  var ev = find_('Events', p.id);
+  if (!ev) return eventsOut_();
+  if (ev.byUser !== me.username && me.role !== 'admin') throw userErr_('Only ' + ev.byName + ' (or an admin) can delete this entry.');
+  remove_('Events', ev.id);
+  return eventsOut_();
 }
 
 /* =====================================================================

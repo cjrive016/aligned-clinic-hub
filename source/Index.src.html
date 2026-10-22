@@ -255,6 +255,40 @@
   .seg button:last-child{ border-right:0; }
   .seg button.on.Pass{ background:var(--good); color:#fff; } .seg button.on.Fail{ background:var(--flag); color:#fff; } .seg button.on.NA{ background:#6B7684; color:#fff; }
 
+  /* ---------- calendar ---------- */
+  .calhead{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .calhead h2{ font-size:20px; min-width:170px; }
+  .calhead .navbtn{ width:34px; height:34px; padding:0; font-size:18px; }
+  .callegend{ display:flex; gap:12px; flex-wrap:wrap; font-size:12.5px; color:var(--ink-soft); margin-bottom:10px; }
+  .callegend span{ display:inline-flex; align-items:center; gap:5px; }
+  .callegend i{ width:10px; height:10px; border-radius:3px; display:inline-block; }
+  .calgrid{ display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); background:var(--line); gap:1px; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
+  .caldow{ background:var(--paper); text-align:center; font-size:11.5px; font-weight:800; letter-spacing:.6px; color:var(--ink-soft); padding:7px 0; text-transform:uppercase; }
+  .calday{ background:var(--surface); min-height:104px; padding:5px 5px 6px; display:flex; flex-direction:column; gap:3px; cursor:pointer; min-width:0; }
+  .calday:hover{ background:#FAFCFE; }
+  .calday.other{ background:#F7F9FB; } .calday.other .dn{ color:var(--ink-faint); }
+  .calday.weekend{ background:#FBFCFD; }
+  .calday .dn{ font-size:12.5px; font-weight:700; color:var(--ink-soft); align-self:flex-start; min-width:22px; height:22px; line-height:22px; text-align:center; border-radius:999px; }
+  .calday.today .dn{ background:var(--brand); color:#fff; }
+  .evchip{ font-size:11.5px; font-weight:650; padding:2px 6px; border-radius:5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border-left:3px solid; cursor:pointer; }
+  .ev-off{ background:#FBEAEA; border-color:#C43D3D; color:#8A2626; }
+  .ev-rep{ background:#E5F4EB; border-color:#2E7D4F; color:#1E5A37; }
+  .ev-meeting{ background:#E7F2FB; border-color:#2E7AB8; color:#1F5E93; }
+  .ev-other{ background:#F3EAF2; border-color:#7C4A78; color:#5C3459; }
+  .legend-off{ background:#C43D3D; } .legend-rep{ background:#2E7D4F; } .legend-meeting{ background:#2E7AB8; } .legend-other{ background:#7C4A78; }
+  .agenda{ margin-top:18px; }
+  .agrow{ display:grid; grid-template-columns:92px minmax(0,1fr) auto; gap:12px; align-items:center; padding:11px 2px; border-bottom:1px solid var(--line); }
+  .agrow:last-child{ border-bottom:0; }
+  .agrow .agd{ font-weight:700; font-size:13.5px; } .agrow .agd small{ display:block; color:var(--ink-soft); font-weight:500; font-size:12px; }
+  .agrow .agt{ min-width:0; } .agrow .agt .evchip{ display:inline-block; max-width:100%; font-size:13px; }
+  .agrow .agm{ font-size:12px; color:var(--ink-soft); margin-top:3px; white-space:pre-wrap; word-break:break-word; }
+  .agrow .aga{ display:flex; gap:6px; }
+  @media (max-width:640px){
+    .calday{ min-height:58px; padding:3px; }
+    .calday .evchip{ font-size:0; padding:0; height:6px; border-left:0; border-radius:3px; }
+    .calday .evchip.ev-off{ background:#C43D3D; } .calday .evchip.ev-rep{ background:#2E7D4F; } .calday .evchip.ev-meeting{ background:#2E7AB8; } .calday .evchip.ev-other{ background:#7C4A78; }
+    .agrow{ grid-template-columns:70px minmax(0,1fr); } .agrow .aga{ grid-column:2; }
+  }
   /* ---------- admin ---------- */
   .weekgrid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }
   .daycard{ border:1px solid var(--line); border-radius:10px; padding:12px; background:#FBFDFE; }
@@ -357,6 +391,9 @@
     <button data-tab="meds" onclick="showTab('meds')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 20.5 3.5 13.5a4.95 4.95 0 0 1 7-7l7 7a4.95 4.95 0 0 1-7 7z"/><path d="m8.5 8.5 7 7"/></svg>
       NDC / Lot <span class="badge zero" id="medBadge">0</span></button>
+    <button data-tab="calendar" onclick="showTab('calendar')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+      Calendar</button>
     <button data-tab="notes" onclick="showTab('notes')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3z"/><path d="M15 3v6h6"/></svg>
       Sticky Notes <span class="badge zero" id="noteBadge">0</span></button>
@@ -579,6 +616,26 @@
         <thead><tr><th>Medication</th><th>NDC</th><th>Lot</th><th>Expiration</th><th>Status</th><th class="num">Qty</th><th>Location</th><th>Added</th><th></th></tr></thead>
         <tbody id="medBody"></tbody>
       </table>
+    </div>
+  </section>
+
+  <!-- ================= CALENDAR ================= -->
+  <section id="tab-calendar" class="tab">
+    <div class="card">
+      <div class="calhead">
+        <button class="btn btn-white navbtn" onclick="calMove(-1)" aria-label="Previous month">‹</button>
+        <h2 id="calTitle"></h2>
+        <button class="btn btn-white navbtn" onclick="calMove(1)" aria-label="Next month">›</button>
+        <button class="btn btn-white btn-sm" onclick="calMove(0)">Today</button>
+        <span style="flex:1"></span>
+        <button class="btn btn-primary" onclick="calAdd()">+ Add to calendar</button>
+      </div>
+      <div class="callegend"><span><i class="legend-off"></i>Day off</span><span><i class="legend-rep"></i>Drug rep lunch</span><span><i class="legend-meeting"></i>Meeting</span><span><i class="legend-other"></i>Other</span><span class="muted">· Tap a day to add something. You can only change or delete what you added.</span></div>
+      <div class="calgrid" id="calGrid"></div>
+    </div>
+    <div class="card agenda">
+      <div class="cardhead"><h2 id="agTitle">This month</h2></div>
+      <div id="calAgenda"></div>
     </div>
   </section>
 
@@ -901,6 +958,7 @@ function renderAll(){
   renderSupplies();
   renderQC();
   renderMeds();
+  renderCalendar();
   renderNotes();
 }
 
@@ -1056,6 +1114,92 @@ async function noteDelete(id){
 async function notePurge(id){
   if(!await confirmBox('Remove forever?', 'This permanently erases the note and its comments from the archive. This cannot be undone.', 'Remove forever', true)) return;
   applyNotes(await act('notePurge', { id }, 'Removed from the archive.'));
+}
+
+/* ---------- calendar ---------- */
+const EV_KINDS = { off:'Day off', rep:'Drug rep lunch', meeting:'Meeting', other:'Other' };
+const pad2 = n => String(n).padStart(2, '0');
+const ymdOf = d => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+function calMonth(){ if(!ui.calMonth) ui.calMonth = (D.today || ymdOf(new Date())).slice(0, 7); return ui.calMonth; }
+function calMove(n){
+  if(n === 0) ui.calMonth = (D.today || ymdOf(new Date())).slice(0, 7);
+  else { const [y, m] = calMonth().split('-').map(Number); const d = new Date(y, m - 1 + n, 1, 12); ui.calMonth = d.getFullYear() + '-' + pad2(d.getMonth() + 1); }
+  renderCalendar();
+}
+const evEnd = e => e.endDate || e.date;
+const evLabel = e => e.kind === 'off' ? (e.byName + ' off' + (e.title ? ' — ' + e.title : ''))
+  : e.kind === 'rep' ? '🍽 ' + (e.title || 'Rep lunch') : e.title;
+const canEditEv = e => D.me.role === 'admin' || e.byUser === D.me.username;
+function evOn(ymd){
+  return (D.events || []).filter(e => e.date <= ymd && evEnd(e) >= ymd)
+    .sort((a,b) => (a.kind === 'off' ? 0 : 1) - (b.kind === 'off' ? 0 : 1) || String(a.time).localeCompare(String(b.time)) || a.createdAt.localeCompare(b.createdAt));
+}
+function renderCalendar(){
+  if(!D || !$('calGrid')) return;
+  const [y, m] = calMonth().split('-').map(Number);
+  const first = new Date(y, m - 1, 1, 12);
+  $('calTitle').textContent = first.toLocaleDateString([], { month:'long', year:'numeric' });
+  const start = new Date(first); start.setDate(1 - first.getDay());
+  const today = D.today || ymdOf(new Date());
+  let html = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => '<div class="caldow">' + d + '</div>').join('');
+  const weeks = Math.ceil((first.getDay() + new Date(y, m, 0).getDate()) / 7);
+  for(let i = 0; i < weeks * 7; i++){
+    const d = new Date(start); d.setDate(start.getDate() + i);
+    const ymd = ymdOf(d), other = d.getMonth() !== m - 1, wk = d.getDay() === 0 || d.getDay() === 6;
+    html += '<div class="calday' + (other ? ' other' : '') + (wk ? ' weekend' : '') + (ymd === today ? ' today' : '') + '" onclick="calAdd(\'' + ymd + '\')">'
+      + '<span class="dn">' + d.getDate() + '</span>'
+      + evOn(ymd).map(e => '<div class="evchip ev-' + esc(e.kind) + '" title="' + esc(evLabel(e) + (e.time ? ' · ' + e.time : '')) + '" onclick="event.stopPropagation(); calOpen(\'' + esc(e.id) + '\')">' + esc((e.time && e.kind !== 'off' ? e.time + ' ' : '') + evLabel(e)) + '</div>').join('')
+      + '</div>';
+  }
+  $('calGrid').innerHTML = html;
+  // agenda for the month
+  const mStart = calMonth() + '-01', mEnd = calMonth() + '-' + pad2(new Date(y, m, 0).getDate());
+  const list = (D.events || []).filter(e => e.date <= mEnd && evEnd(e) >= mStart).sort((a,b) => a.date.localeCompare(b.date) || String(a.time).localeCompare(String(b.time)));
+  $('agTitle').textContent = 'In ' + first.toLocaleDateString([], { month:'long' });
+  $('calAgenda').innerHTML = list.length ? list.map(e => '<div class="agrow">'
+      + '<div class="agd">' + esc(fmtYmd(e.date)) + (e.endDate ? '<small>through ' + esc(fmtYmd(e.endDate)) + '</small>' : '') + (e.time ? '<small>' + esc(e.time) + '</small>' : '') + '</div>'
+      + '<div class="agt"><span class="evchip ev-' + esc(e.kind) + '">' + esc(evLabel(e)) + '</span>'
+      + '<div class="agm">' + (e.notes ? esc(e.notes) + '\n' : '') + 'Added by ' + esc(e.byUser === D.me.username ? 'you' : e.byName) + '</div></div>'
+      + '<div class="aga">' + (canEditEv(e) ? '<button class="btn btn-white btn-sm" onclick="calEdit(\'' + esc(e.id) + '\')">Edit</button><button class="btn btn-white btn-sm" onclick="calDelete(\'' + esc(e.id) + '\')">Delete</button>' : '') + '</div>'
+      + '</div>').join('')
+    : '<div class="emptymsg">Nothing on the calendar this month yet.</div>';
+}
+function calForm(e, date){
+  return [
+    { id:'kind', label:'What is it?', type:'select', value: e ? e.kind : 'off', options: Object.keys(EV_KINDS).map(k => ({ value:k, label:EV_KINDS[k] })) },
+    { id:'date', label:'Date', type:'date', value: e ? e.date : (date || D.today), required:true },
+    { id:'endDate', label:'Through (optional — for more than one day)', type:'date', value: e ? e.endDate : '' },
+    { id:'time', label:'Time (optional)', value: e ? e.time : '', placeholder:'e.g. 12:00 PM' },
+    { id:'title', label:'Details — rep / company, or what it is (optional for days off)', value: e ? e.title : '', placeholder:'e.g. Pfizer — lunch for 6' },
+    { id:'notes', label:'Notes (optional)', type:'textarea', value: e ? e.notes : '', placeholder:'e.g. Bringing Mexican food, needs the break room' }
+  ];
+}
+async function calAdd(date){
+  const r = await ask({ title:'Add to calendar', message:'Days off show with your name. Only you (or an admin) can change or delete it later.', okText:'Add', fields: calForm(null, date) });
+  if(!r) return;
+  const res = await act('eventSave', r, 'Added to the calendar.');
+  if(res){ D.events = res.events; if(r.date) ui.calMonth = r.date.slice(0, 7); renderCalendar(); }
+}
+async function calEdit(id){
+  const e = (D.events || []).find(x => x.id === id); if(!e || !canEditEv(e)) return;
+  const r = await ask({ title:'Edit calendar entry', okText:'Save', fields: calForm(e) });
+  if(!r) return;
+  r.id = id;
+  const res = await act('eventSave', r, 'Saved.');
+  if(res){ D.events = res.events; renderCalendar(); }
+}
+async function calDelete(id){
+  const e = (D.events || []).find(x => x.id === id); if(!e || !canEditEv(e)) return;
+  if(!await confirmBox('Delete this?', evLabel(e) + ' — ' + fmtYmd(e.date) + (e.endDate ? ' through ' + fmtYmd(e.endDate) : ''), 'Delete', true)) return;
+  const res = await act('eventDelete', { id }, 'Deleted.');
+  if(res){ D.events = res.events; renderCalendar(); }
+}
+async function calOpen(id){
+  const e = (D.events || []).find(x => x.id === id); if(!e) return;
+  if(canEditEv(e)) return calEdit(id);
+  await ask({ title: EV_KINDS[e.kind] || 'Calendar', okText:'Close', noCancel:false,
+    message: evLabel(e) + '\n' + fmtYmd(e.date) + (e.endDate ? ' through ' + fmtYmd(e.endDate) : '') + (e.time ? ' · ' + e.time : '')
+      + (e.notes ? '\n\n' + e.notes : '') + '\n\nAdded by ' + e.byName + '. Only they (or an admin) can change it.' });
 }
 
 function showTab(name, silent){
