@@ -52,11 +52,6 @@
   .who .rl{ font-size:11.5px; color:var(--ink-soft); }
   nav{ max-width:1120px; margin:0 auto; padding:8px 20px 0; display:flex; gap:2px; overflow-x:auto; scrollbar-width:none; }
   nav::-webkit-scrollbar{ display:none; }
-  .sidetabs{ display:flex; gap:6px; padding-right:10px; margin-right:4px; border-right:1px solid var(--line); }
-  .sidetab svg{ width:15px; height:15px; }
-  .sidetab.active{ background:var(--brand-soft); border-color:var(--brand); color:var(--brand-dark); }
-  .sidetab .badge{ font-size:11px; min-width:18px; padding:0 6px; }
-  @media (max-width:640px){ .sidetab .stl{ display:none; } .sidetabs{ padding-right:6px; } }
   nav button{ appearance:none; border:0; background:transparent; cursor:pointer; color:var(--ink-soft); font-weight:600; font-size:14.5px; padding:11px 16px 13px; border-bottom:3px solid transparent; white-space:nowrap; display:flex; align-items:center; gap:7px; }
   nav button svg{ width:17px; height:17px; }
   nav button:hover{ color:var(--brand); }
@@ -102,6 +97,7 @@
   .colorpick button{ width:30px; height:30px; border-radius:7px; border:2px solid transparent; cursor:pointer; }
   .colorpick button.on{ border-color:var(--ink); }
   .walltabs{ display:flex; gap:6px; flex-wrap:wrap; }
+  .walltop{ margin-bottom:16px; }
   .walltabs button{ border:1px solid var(--line); background:#fff; border-radius:999px; padding:5px 12px; font-weight:650; cursor:pointer; font-size:13.5px; }
   .walltabs button.on{ background:var(--brand); color:#fff; border-color:var(--brand); }
   .walltabs .cnt{ margin-left:6px; font-size:11.5px; padding:0 6px; border-radius:999px; background:rgba(0,0,0,.08); }
@@ -329,14 +325,6 @@
       <div><div class="sub">Aligned Health</div><h1>Clinic Hub</h1></div>
     </div>
     <div class="who">
-      <div class="sidetabs">
-        <button data-tab="notes" class="btn btn-white btn-sm sidetab" onclick="showTab('notes')" title="Sticky Notes">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3z"/><path d="M15 3v6h6"/></svg>
-          <span class="stl">Sticky Notes</span> <span class="badge zero" id="noteBadge">0</span></button>
-        <button data-tab="admin" id="adminNavBtn" class="btn btn-white btn-sm sidetab hidden" onclick="showTab('admin')" title="Admin">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span class="stl">Admin</span></button>
-      </div>
       <div class="avatar" id="meAvatar">?</div>
       <div><div class="nm" id="meName"></div><div class="rl" id="meRole"></div></div>
       <button class="btn btn-white btn-sm" onclick="changeMyPassword()">Password</button>
@@ -356,6 +344,12 @@
     <button data-tab="meds" onclick="showTab('meds')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 20.5 3.5 13.5a4.95 4.95 0 0 1 7-7l7 7a4.95 4.95 0 0 1-7 7z"/><path d="m8.5 8.5 7 7"/></svg>
       NDC / Lot <span class="badge zero" id="medBadge">0</span></button>
+    <button data-tab="notes" onclick="showTab('notes')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3z"/><path d="M15 3v6h6"/></svg>
+      Sticky Notes <span class="badge zero" id="noteBadge">0</span></button>
+    <button data-tab="admin" id="adminNavBtn" class="hidden" onclick="showTab('admin')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Admin</button>
   </nav>
 </header>
 
@@ -570,6 +564,7 @@
 
   <!-- ================= ADMIN ================= -->
   <section id="tab-notes" class="tab">
+    <div class="walltabs walltop" id="wallTabs"></div>
     <div class="card">
       <div class="cardhead"><h2>Post a sticky note</h2><span class="muted">The person gets an email and a red flag when they sign in</span></div>
       <div class="formgrid">
@@ -579,7 +574,7 @@
       </div>
       <div class="formactions"><button class="btn btn-primary" id="noteBtn" onclick="addNote()">Post note</button></div>
     </div>
-    <div class="wallhead"><h2 id="wallTitle" style="margin:0">My wall</h2><div class="walltabs" id="wallTabs"></div></div>
+    <div class="wallhead"><h2 id="wallTitle" style="margin:0">My wall</h2></div>
     <div class="muted" id="wallHint" style="margin:-6px 0 14px"></div>
     <div class="notegrid" id="noteGrid"></div>
   </section>
@@ -1032,7 +1027,7 @@ async function notePurge(id){
 function showTab(name, silent){
   ui.tab = name; savePref('tab', name);
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
-  document.querySelectorAll('header [data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('#mainnav button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   if(name === 'admin' && !silent && D && D.me.role === 'admin') renderAdmin();
   if(D && name === 'notes'){ renderNotes(); if((ui.noteView || 'mine') === 'mine') markNotesSeen(); }
   if(D) renderNotesBadges();
