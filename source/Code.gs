@@ -66,6 +66,7 @@ var TABLES = {
   Items:    ['id', 'name', 'category', 'owner', 'qty', 'price', 'reorderAt', 'notes', 'paid', 'paidDate', 'createdAt'],
   Orders:   ['id', 'itemId', 'name', 'qty', 'price', 'assignTo', 'by', 'note', 'status', 'requestedAt', 'orderedAt', 'receivedAt'],
   Cleaning: ['id', 'date', 'day', 'task', 'assigned', 'assignedName', 'doneBy', 'doneByName', 'doneAt', 'offAssignment', 'late', 'comment', 'kind'],
+  Pricing:  ['id', 'grp', 'sort', 'code', 'dose', 'doseMg', 'volMl', 'units', 'price', 'vial', 'updatedBy', 'updatedAt'],
   Meds:     ['id', 'name', 'ndc', 'lot', 'expiration', 'qty', 'location', 'notes', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'],
   Swaps:    ['id', 'date', 'task', 'fromName', 'toName', 'coverId', 'origDate', 'createdAt'],
   Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls', 'deleted', 'deletedAt', 'deletedBy', 'editedAt', 'authorFlag'],
@@ -212,6 +213,9 @@ var ACTIONS = {
   eventDelete:      { fn: a_eventDelete_, write: true },
   notePurge:        { fn: a_notePurge_, write: true, admin: true },
   medDelete:        { fn: a_medDelete_, write: true, admin: true },
+  priceSave:        { fn: a_priceSave_, write: true, admin: true },
+  priceDelete:      { fn: a_priceDelete_, write: true, admin: true },
+  priceNoteSave:    { fn: a_priceNoteSave_, write: true, admin: true },
 
   userAdd:          { fn: a_userAdd_, write: true, admin: true },
   userUpdate:       { fn: a_userUpdate_, write: true, admin: true },
@@ -249,6 +253,7 @@ function a_bootstrap_(me) {
     qc: clean_(rows_('QC')),
     meds: clean_(rows_('Meds')),
     events: clean_(rows_('Events')),
+    pricing: pricing_(),
     notes: notesList_(me).notes,
     noteComments: notesList_(me).noteComments,
     qcRetentionDays: CONFIG.QC_RETENTION_DAYS,
@@ -687,6 +692,73 @@ function a_medSave_(me, p) {
     insert_('Meds', rec);
   }
   return { meds: clean_(rows_('Meds')) };
+}
+
+/* =====================================================================
+   GLP PRICING — everyone can view; only admins can change it
+   ===================================================================== */
+var DEFAULT_PRICING = [
+  ['Semaglutide 1 mg/mL', 'SEMA1', '0.25 mg', '0.22', '0.22', '22', '100', '1 mL'],
+  ['Semaglutide 1 mg/mL', 'SEMA2', '0.5 mg', '0.44', '0.44', '44', '129', '2 mL'],
+  ['Semaglutide 4 mg/mL', 'SEMA3', '0.75 mg', '0.88', '0.22', '22', '160', '1 mL'],
+  ['Semaglutide 4 mg/mL', 'SEMA4', '1 mg', '1.5', '0.38', '38', '180', '2 mL'],
+  ['Semaglutide 4 mg/mL', 'SEMA5', '2 mg', '2.15', '0.54', '54', '200', '3 mL'],
+  ['Semaglutide 4 mg/mL', 'SEMA6', '2.5 mg', '2.67', '0.67', '67', '200', '3 mL'],
+  ['Tirzepatide 10 mg/mL', 'TIRZE1', '2.5 mg', '2.2', '0.22', '22', '180', '1 mL'],
+  ['Tirzepatide 10 mg/mL', 'TIRZE2', '5 mg', '4.4', '0.44', '44', '210', '2 mL'],
+  ['Tirzepatide 30 mg/mL', 'TIRZE3', '7.5 mg', '6.6', '0.22', '22', '250', '1 mL'],
+  ['Tirzepatide 30 mg/mL', 'TIRZE4', '10 mg', '8.8', '0.29', '29', '290', '1.5 mL'],
+  ['Tirzepatide 30 mg/mL', 'TIRZE5', '12.5 mg', '11', '0.37', '37', '290', '1.5 mL'],
+  ['Tirzepatide 30 mg/mL', 'TIRZE6', '15 mg', '13.2', '0.44', '44', '290', '2 mL'],
+  ['Tirzepatide 30 mg/mL', 'TIRZE7', '—', '16.6*', '0.55', '55', '340', '3 mL']
+];
+var DEFAULT_PRICING_NOTE = "* TIRZE7: weekly dose per Lexington's clinic sheet for the 3 mL vial. 55 units of 30 mg/mL delivers 16.5 mg. " +
+  'This is above the 15 mg maximum commercial tirzepatide dose and requires provider approval.\n' +
+  'Prices per 4-week vial · Updated October 2026 · Clinic pricing';
+function pricing_() {
+  var props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('pricing_seeded')) {
+    props.setProperty('pricing_seeded', '1');
+    if (!rows_('Pricing').length) {
+      DEFAULT_PRICING.forEach(function (r, i) {
+        insert_('Pricing', { id: uid_(), grp: r[0], sort: String(i + 1), code: r[1], dose: r[2], doseMg: r[3], volMl: r[4], units: r[5], price: r[6], vial: r[7], updatedBy: '', updatedAt: '' });
+      });
+      props.setProperty('pricing_note', DEFAULT_PRICING_NOTE);
+    }
+  }
+  var rows = clean_(rows_('Pricing')).sort(function (a, b) { return Number(a.sort) - Number(b.sort); });
+  return { rows: rows, note: props.getProperty('pricing_note') || '' };
+}
+function a_priceSave_(me, p) {
+  var f = function (k, max) { return str_(p[k]).slice(0, max || 60); };
+  var grp = f('grp', 80), code = f('code', 30);
+  if (!grp) throw userErr_('Enter the medication / concentration (for example "Semaglutide 1 mg/mL").');
+  if (!code) throw userErr_('Enter the procedure code.');
+  var price = f('price').replace(/[$,\s]/g, '');
+  if (price && !/^\d+(\.\d{1,2})?$/.test(price)) throw userErr_('Price should be a number, like 180 or 180.50.');
+  var data = { grp: grp, code: code, dose: f('dose'), doseMg: f('doseMg'), volMl: f('volMl'), units: f('units'), price: price, vial: f('vial'),
+               updatedBy: me.name, updatedAt: nowIso_() };
+  var rec = p.id ? find_('Pricing', p.id) : null;
+  if (rec) update_('Pricing', rec.id, data);
+  else {
+    var inGroup = rows_('Pricing').filter(function (r) { return r.grp === grp; });
+    var pool = inGroup.length ? inGroup : rows_('Pricing');
+    var max = 0;
+    pool.forEach(function (r) { max = Math.max(max, Number(r.sort) || 0); });
+    // new row goes at the end of its group; shift later rows down
+    rows_('Pricing').forEach(function (r) { if ((Number(r.sort) || 0) > max) update_('Pricing', r.id, { sort: String(Number(r.sort) + 1) }); });
+    data.id = uid_(); data.sort = String(max + 1);
+    insert_('Pricing', data);
+  }
+  return { pricing: pricing_() };
+}
+function a_priceDelete_(me, p) {
+  if (find_('Pricing', p.id)) remove_('Pricing', p.id);
+  return { pricing: pricing_() };
+}
+function a_priceNoteSave_(me, p) {
+  PropertiesService.getScriptProperties().setProperty('pricing_note', String(p.note || '').slice(0, 2000));
+  return { pricing: pricing_() };
 }
 
 function a_medDelete_(me, p) {

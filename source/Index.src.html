@@ -88,6 +88,15 @@
   .sticky .nstatus{ font-size:12px; font-weight:700; border-radius:6px; padding:4px 7px; background:rgba(255,255,255,.7); }
   .sticky .nstatus.del{ color:var(--flag); } .sticky .nstatus.ok{ color:var(--good); }
   .colorpick{ display:flex; gap:8px; }
+  .pricegrp{ margin-bottom:18px; }
+  .pricegrp h3{ margin:0 0 8px; font-size:16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .pricegrp table{ min-width:640px; }
+  .pricegrp td.code{ font-weight:800; letter-spacing:.3px; }
+  .pricegrp td.price{ font-weight:800; color:var(--good); font-size:15px; }
+  .pricegrp td.num, .pricegrp th.num{ text-align:right; font-variant-numeric:tabular-nums; }
+  .pricegrp td.act{ white-space:nowrap; text-align:right; }
+  .pricenote{ white-space:pre-wrap; font-size:13px; color:var(--ink-soft); background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:12px 14px; }
+  .pricenote:empty{ display:none; }
   .wallpick{ display:flex; flex-wrap:wrap; gap:6px; }
   .wallpick label{ display:inline-flex; align-items:center; gap:6px; margin:0; padding:6px 11px; border:1px solid var(--line, #D8E0E8); border-radius:999px; font-size:13.5px; font-weight:600; cursor:pointer; background:#fff; text-transform:none; letter-spacing:normal; white-space:nowrap; color:var(--ink); }
   .wallpick label.on{ background:var(--brand-soft); border-color:var(--brand-dark); color:var(--brand-dark); }
@@ -394,6 +403,9 @@
     <button data-tab="calendar" onclick="showTab('calendar')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
       Calendar</button>
+    <button data-tab="pricing" onclick="showTab('pricing')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg>
+      GLP Pricing</button>
     <button data-tab="notes" onclick="showTab('notes')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3z"/><path d="M15 3v6h6"/></svg>
       Sticky Notes <span class="badge zero" id="noteBadge">0</span></button>
@@ -640,6 +652,14 @@
   </section>
 
   <!-- ================= ADMIN ================= -->
+  <section id="tab-pricing" class="tab">
+    <div class="cardhead" style="margin-bottom:12px"><div><h2 style="margin:0">GLP-1 Dosing + Units + Pricing</h2>
+      <div class="muted" id="priceSub">Clinic pricing</div></div>
+      <div id="priceAdminBtns"></div></div>
+    <div id="priceGroups"></div>
+    <div class="pricenote" id="priceNote"></div>
+  </section>
+
   <section id="tab-notes" class="tab">
     <div class="walltabs walltop" id="wallTabs"></div>
     <div class="card">
@@ -959,6 +979,7 @@ function renderAll(){
   renderQC();
   renderMeds();
   renderCalendar();
+  renderPricing();
   renderNotes();
 }
 
@@ -1200,6 +1221,60 @@ async function calOpen(id){
   await ask({ title: EV_KINDS[e.kind] || 'Calendar', okText:'Close', noCancel:false,
     message: evLabel(e) + '\n' + fmtYmd(e.date) + (e.endDate ? ' through ' + fmtYmd(e.endDate) : '') + (e.time ? ' · ' + e.time : '')
       + (e.notes ? '\n\n' + e.notes : '') + '\n\nAdded by ' + e.byName + '. Only they (or an admin) can change it.' });
+}
+/* =========================================================
+   GLP PRICING (view for everyone, edit for admins)
+   ========================================================= */
+function renderPricing(){
+  if(!D) return;
+  const P = D.pricing || { rows: [], note: '' };
+  const admin = D.me.role === 'admin';
+  const groups = [];
+  P.rows.forEach(r => { let g = groups.find(x => x.name === r.grp); if(!g){ g = { name: r.grp, rows: [] }; groups.push(g); } g.rows.push(r); });
+  const last = P.rows.filter(r => r.updatedAt).sort((a,b) => a.updatedAt < b.updatedAt ? 1 : -1)[0];
+  $('priceSub').textContent = 'Prices per 4-week vial · ' + (admin ? 'You can edit this (admin)' : 'View only. Ask an admin to change pricing')
+    + (last ? ' · Last changed ' + fmtDateTime(last.updatedAt) + ' by ' + last.updatedBy : '');
+  $('priceAdminBtns').innerHTML = admin ? '<button class="btn btn-primary btn-sm" onclick="priceEdit(null, \'\', true)">+ New medication group</button> <button class="btn btn-white btn-sm" onclick="priceNoteEdit()">Edit footnote</button>' : '';
+  const money = v => v === '' || v == null ? '—' : '$' + (Number(v) % 1 ? Number(v).toFixed(2) : Number(v));
+  ui.priceGroups = groups.map(g => g.name);
+  $('priceGroups').innerHTML = groups.length ? groups.map((g, gi) => '<div class="pricegrp"><h3>' + esc(g.name)
+      + (admin ? '<button class="btn btn-link btn-sm" onclick="priceEdit(null, ui.priceGroups[' + gi + '])">+ Add row</button>' : '') + '</h3>'
+      + '<div class="tablewrap"><table><thead><tr><th>Code</th><th>Commercial dose</th><th class="num">Units</th><th class="num">Price</th><th class="num">Dose (mg)</th><th class="num">Vol. (mL)</th><th>Vial size</th>' + (admin ? '<th></th>' : '') + '</tr></thead><tbody>'
+      + g.rows.map(r => '<tr><td class="code">' + esc(r.code) + '</td><td>' + esc(r.dose || '—') + '</td><td class="num">' + esc(r.units || '—') + '</td><td class="num price">' + esc(money(r.price)) + '</td><td class="num">' + esc(r.doseMg || '—') + '</td><td class="num">' + esc(r.volMl || '—') + '</td><td>' + esc(r.vial || '—') + '</td>'
+        + (admin ? '<td class="act"><button class="btn btn-link btn-sm" onclick="priceEdit(\'' + esc(r.id) + '\')">Edit</button><button class="btn btn-link btn-sm" style="color:var(--flag)" onclick="priceDelete(\'' + esc(r.id) + '\')">Delete</button></td>' : '') + '</tr>').join('')
+      + '</tbody></table></div></div>').join('')
+    : '<div class="emptymsg">No pricing yet.' + (admin ? ' Click "+ New medication group" to add some.' : '') + '</div>';
+  $('priceNote').textContent = P.note || '';
+}
+async function priceEdit(id, grp, isNew){
+  const r = id ? (D.pricing.rows || []).find(x => x.id === id) : null;
+  const v = k => r ? (r[k] || '') : '';
+  const res = await ask({ title: r ? 'Edit ' + r.code : isNew ? 'New medication group' : 'Add a row to ' + grp, okText: 'Save',
+    fields: [
+      { id:'grp', label:'Medication / concentration', value: r ? r.grp : (grp || ''), placeholder:'e.g. Semaglutide 1 mg/mL', required:true },
+      { id:'code', label:'Procedure code', value: v('code'), placeholder:'e.g. SEMA1', required:true },
+      { id:'dose', label:'Commercial dose', value: v('dose'), placeholder:'e.g. 0.25 mg' },
+      { id:'doseMg', label:'Dose (mg)', value: v('doseMg') },
+      { id:'volMl', label:'Vol. (mL)', value: v('volMl') },
+      { id:'units', label:'Units', value: v('units') },
+      { id:'price', label:'Price ($)', value: v('price'), placeholder:'e.g. 180' },
+      { id:'vial', label:'Vial size', value: v('vial'), placeholder:'e.g. 1 mL' }
+    ] });
+  if(!res) return;
+  const out = await act('priceSave', Object.assign({ id: id || '' }, res), 'Pricing saved.');
+  if(out){ D.pricing = out.pricing; renderPricing(); }
+}
+async function priceDelete(id){
+  const r = (D.pricing.rows || []).find(x => x.id === id); if(!r) return;
+  if(!await confirmBox('Delete ' + r.code + '?', 'This removes the ' + r.code + ' row (' + (r.dose || '') + ', $' + r.price + ') from GLP pricing for everyone.', 'Delete', true)) return;
+  const out = await act('priceDelete', { id }, 'Row deleted.');
+  if(out){ D.pricing = out.pricing; renderPricing(); }
+}
+async function priceNoteEdit(){
+  const res = await ask({ title:'Edit footnote', okText:'Save', fields:[{ id:'note', label:'Shown under the pricing tables', type:'textarea', value:(D.pricing && D.pricing.note) || '' }] });
+  if(!res) return;
+  const out = await act('priceNoteSave', { note: res.note }, 'Footnote saved.');
+  if(out){ D.pricing = out.pricing; renderPricing(); }
 }
 
 function showTab(name, silent){
