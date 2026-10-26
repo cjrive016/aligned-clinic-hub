@@ -905,7 +905,7 @@ $('setupForm').addEventListener('submit', async e => {
 });
 
 async function signOut(){
-  const t = TOKEN; TOKEN = null; saveToken(null); D = null; $('toast').classList.remove('show');
+  const t = TOKEN; TOKEN = null; saveToken(null); D = null; $('toast').classList.remove('show'); setTabBadge(0);
   try { await run('logout', t); } catch(e){}
   $('loginForm').classList.remove('hidden'); $('setupForm').classList.add('hidden');
   $('authLead').textContent = 'Sign in to continue';
@@ -960,8 +960,12 @@ async function boot(){
   showSub(loadPref('sub', 'inventory'));
 }
 
+let lastRefresh = 0;
 async function refresh(){
-  if(!TOKEN || !D || modalOpen || document.hidden || ui.editingId || medEditingId) return;
+  if(!TOKEN || !D || modalOpen || ui.editingId || medEditingId) return;
+  // keep the tab's red number current even when you're on another tab, just less often
+  if(document.hidden && Date.now() - lastRefresh < 110000) return;
+  lastRefresh = Date.now();
   if(document.activeElement && document.activeElement.id === 'n-text') return;
   try {
     const fresh = await run('api', TOKEN, 'bootstrap', {});
@@ -1017,6 +1021,49 @@ function renderNotesBadges(){
   if(fresh) parts.push(fresh + ' new sticky note' + (fresh === 1 ? '' : 's') + ' (or comments) on your wall');
   if(replies) parts.push(replies + ' new repl' + (replies === 1 ? 'y' : 'ies') + ' on notes you left');
   $('noteBarText').textContent = 'You have ' + parts.join(' and ');
+  updateTabBadge();
+}
+/* ---------- red number on the browser tab ---------- */
+function myOpenTaskCount(){
+  if(!D || !D.me) return 0;
+  const me = D.me.username;
+  let n = 0;
+  const day = D.todayKey;
+  if(day && !(D.closedDates || []).includes(D.today) && !(D.startDate && D.today < D.startDate)){
+    (sched(day).tasks || []).forEach(t => {
+      const recs = cleanRecs(D.today, t);
+      if(isMyTask(day, t) && recs.length < SIGNOFFS_NEEDED && !recs.some(r => r.doneBy === me)) n++;
+    });
+  }
+  (D.carryOver || []).forEach(c => { if((c.users || []).includes(me) && !c.recs.some(r => r.doneBy === me)) n++; });
+  return n;
+}
+let tabIconBase = null, tabBadgeLast = -1;
+function setTabBadge(count){
+  document.title = (count ? '(' + count + ') ' : '') + 'Aligned Clinic Hub';
+  if(count === tabBadgeLast) return;
+  tabBadgeLast = count;
+  try { if(navigator.setAppBadge) (count ? navigator.setAppBadge(count) : navigator.clearAppBadge()).catch(() => {}); } catch(e){}
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  // clinic icon: blue rounded square with a white cross
+  g.fillStyle = '#2E7CC4'; g.beginPath(); g.roundRect ? g.roundRect(2, 2, 60, 60, 14) : g.rect(2, 2, 60, 60); g.fill();
+  g.fillStyle = '#fff'; g.fillRect(25, 12, 14, 40); g.fillRect(12, 25, 40, 14);
+  if(count){
+    const txt = count > 99 ? '99+' : String(count);
+    const r = txt.length > 1 ? 20 : 17;
+    g.fillStyle = '#E02424'; g.beginPath(); g.arc(64 - r, r, r, 0, Math.PI * 2); g.fill();
+    g.lineWidth = 3; g.strokeStyle = '#fff'; g.stroke();
+    g.fillStyle = '#fff'; g.font = 'bold ' + (txt.length > 2 ? 18 : txt.length > 1 ? 24 : 28) + 'px Arial, sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(txt, 64 - r, r + 2);
+  }
+  let link = document.querySelector('link[rel="icon"]');
+  if(!link){ link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
+  link.type = 'image/png'; link.href = c.toDataURL('image/png');
+}
+function updateTabBadge(){
+  if(!D || !TOKEN){ setTabBadge(0); return; }
+  setTabBadge(myOpenTaskCount() + myNewNotes().length + myNewReplies().length);
 }
 /** one card per note, even if it was posted to several walls */
 function dedupe(list){ const seen = {}; return list.filter(n => { const k = noteKey(n); if(seen[k]) return false; seen[k] = 1; return true; }); }
@@ -1461,6 +1508,7 @@ function renderCleaning(){
     }).join('') + '</ul>';
   }
   $('cleanList').innerHTML = html;
+  updateTabBadge();
 }
 
 function pickDay(day){ ui.day = day; renderCleaning(); }
