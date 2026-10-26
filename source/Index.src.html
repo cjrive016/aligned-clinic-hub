@@ -995,6 +995,7 @@ let noteColor = 'yellow';
 const noteArchived = n => !!(n.done || n.deleted);
 const noteKey = n => n.groupId || n.id;
 const noteWalls = n => n.walls ? String(n.walls).split(',') : [n.wall];
+function myOpenNotes(){ return (D.notes || []).filter(n => n.wall === D.me.username && !noteArchived(n)); }
 function myNewNotes(){ return (D.notes || []).filter(n => n.wall === D.me.username && !noteArchived(n) && !n.seenAt); }
 /** replies on notes I left on someone else's wall */
 function myNewReplies(){ return dedupe((D.notes || []).filter(n => n.fromUser === D.me.username && n.authorFlag && !noteArchived(n))); }
@@ -1014,11 +1015,12 @@ function markNotesSeen(){
 }
 function applyNotes(r){ if(!r) return; D.notes = r.notes; D.noteComments = r.noteComments || []; if(ui.tab === 'notes') renderNotes(); else renderNotesBadges(); }
 function renderNotesBadges(){
-  const fresh = myNewNotes().length, replies = myNewReplies().length, total = fresh + replies;
+  // open notes on your wall keep counting until they are marked Done (just looking doesn't clear them)
+  const open = myOpenNotes().length, fresh = myNewNotes().length, replies = myNewReplies().length, total = open + replies;
   $('noteBadge').textContent = total; $('noteBadge').classList.toggle('zero', total === 0);
   $('noteBar').classList.toggle('hidden', total === 0 || ui.tab === 'notes');
   const parts = [];
-  if(fresh) parts.push(fresh + ' new sticky note' + (fresh === 1 ? '' : 's') + ' (or comments) on your wall');
+  if(open) parts.push(open + ' open sticky note' + (open === 1 ? '' : 's') + ' on your wall' + (fresh ? ' (' + fresh + ' new)' : '') + ' to finish');
   if(replies) parts.push(replies + ' new repl' + (replies === 1 ? 'y' : 'ies') + ' on notes you left');
   $('noteBarText').textContent = 'You have ' + parts.join(' and ');
   updateTabBadge();
@@ -1063,7 +1065,7 @@ function setTabBadge(count){
 }
 function updateTabBadge(){
   if(!D || !TOKEN){ setTabBadge(0); return; }
-  setTabBadge(myOpenTaskCount() + myNewNotes().length + myNewReplies().length);
+  setTabBadge(myOpenTaskCount() + myOpenNotes().length + myNewReplies().length);
 }
 /** one card per note, even if it was posted to several walls */
 function dedupe(list){ const seen = {}; return list.filter(n => { const k = noteKey(n); if(seen[k]) return false; seen[k] = 1; return true; }); }
