@@ -63,7 +63,7 @@
   .notebar .btn{ margin-left:auto; }
   .wallhead{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
   .wallhead select{ max-width:260px; }
-  .notegrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:16px; }
+  .notegrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:16px; align-items:start; }
   .sticky{ position:relative; border-radius:4px 4px 12px 4px; padding:16px 14px 12px; min-height:150px; box-shadow:0 6px 14px rgba(30,40,60,.13); display:flex; flex-direction:column; gap:8px; transform:rotate(-.6deg); }
   .sticky:nth-child(2n){ transform:rotate(.7deg); }
   .sticky.yellow{ background:#FFF4A8; } .sticky.pink{ background:#FFD6E3; } .sticky.blue{ background:#D3EAFF; } .sticky.green{ background:#D6F5D6; }
@@ -329,6 +329,19 @@
   .modal .msg{ color:var(--ink-soft); font-size:14px; margin-bottom:14px; white-space:pre-line; }
   .modal .field{ margin-bottom:12px; }
   .modal .acts{ display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+  .chatmodal{ max-width:480px; padding:0; display:flex; flex-direction:column; height:min(640px, 88vh); overflow:hidden; }
+  .chathead{ padding:14px 16px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:flex-start; }
+  .chathead .cnote{ flex:1; font-size:14px; white-space:pre-wrap; word-break:break-word; max-height:96px; overflow:auto; border-radius:8px; padding:8px 10px; }
+  .chathead .cx{ border:none; background:none; font-size:22px; line-height:1; cursor:pointer; color:var(--ink-soft); padding:2px 6px; }
+  .chatlog{ flex:1; overflow:auto; padding:14px 16px; display:flex; flex-direction:column; gap:8px; background:#F6F8FB; }
+  .chatmsg{ max-width:80%; align-self:flex-start; background:#fff; border:1px solid var(--line); border-radius:14px 14px 14px 4px; padding:8px 11px; font-size:14px; white-space:pre-wrap; word-break:break-word; }
+  .chatmsg.mine{ align-self:flex-end; background:var(--brand); color:#fff; border-color:var(--brand); border-radius:14px 14px 4px 14px; }
+  .chatmsg small{ display:block; font-size:11px; opacity:.75; margin-top:3px; }
+  .chatmsg.mine small{ text-align:right; }
+  .chatempty{ margin:auto; color:var(--ink-soft); font-size:14px; text-align:center; }
+  .chatin{ display:flex; gap:8px; padding:10px 12px; border-top:1px solid var(--line); background:#fff; }
+  .chatin textarea{ flex:1; resize:none; min-height:42px; max-height:110px; }
+  .chatlocked{ padding:12px 16px; border-top:1px solid var(--line); font-size:13px; color:var(--ink-soft); text-align:center; }
   .toast{ position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(20px); background:#1B2430; color:#fff; padding:11px 18px; border-radius:10px; font-weight:600; font-size:14px; box-shadow:0 10px 30px rgba(0,0,0,.25); opacity:0; pointer-events:none; transition:all .2s ease; z-index:60; max-width:calc(100% - 32px); }
   .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
   .toast.bad{ background:var(--flag); }
@@ -1118,7 +1131,6 @@ function renderNotes(){
     let acts = '';
     if(!arch){
       acts = '<button onclick="noteDone(\'' + id + '\', true)">✓ Done</button>'
-        + '<button onclick="noteComment(\'' + id + '\')">💬 Comment</button>'
         + (n.fromUser === me ? '<button onclick="noteEdit(\'' + id + '\')">✎ Add to note</button>' : '')
         + (canClose ? '<button onclick="noteDelete(\'' + id + '\')">Delete</button>' : '');
     } else if(admin){
@@ -1130,8 +1142,7 @@ function renderNotes(){
       + '<div class="ntext">' + esc(n.text) + '</div>'
       + adds.map(c => '<div class="nadd">+ ' + esc(c.text) + '<small>added ' + esc(fmtDateTime(c.at)) + '</small></div>').join('')
       + '<div class="nmeta">From <strong>' + esc(n.fromUser === me ? 'You' : n.fromName) + '</strong> → ' + esc(noteWalls(n).map(nameOf).join(', ')) + '<br>' + esc(fmtDateTime(n.createdAt)) + '</div>'
-      + (cs.length ? '<div class="ncomments">' + cs.map(c => '<div class="ncomment"><strong>' + esc(c.byUser === me ? 'You' : c.byName) + ':</strong> ' + esc(c.text) + '<br><small>' + esc(fmtDateTime(c.at)) + '</small></div>').join('') + '</div>' : '')
-      + (acts ? '<div class="nact">' + acts + '</div>' : '')
+      + '<div class="nact"><button onclick="openChat(\'' + id + '\')">💬 Comments' + (cs.length ? ' (' + cs.length + ')' : '') + '</button>' + acts + '</div>'
       + '</div>';
   };
   let list = ui.noteView === 'mine' ? mineList : ui.noteView === 'sent' ? sentList : ui.noteView === 'all' ? allList : archList;
@@ -1169,12 +1180,56 @@ async function noteEdit(id){
   if(!r) return;
   applyNotes(await act('noteEdit', { id, text: r.text }, 'Added to your note.'));
 }
-async function noteComment(id){
+/* ---------- comments chat box ---------- */
+let chatTimer = null;
+function noteComment(id){ openChat(id); }
+function openChat(id){
   const n = findNote(id); if(!n) return;
-  const r = await ask({ title:'Add a comment', message:'"' + n.text.slice(0, 140) + (n.text.length > 140 ? '…' : '') + '"', okText:'Post comment',
-    fields:[{ id:'text', label:'Comment', type:'textarea', placeholder:'e.g. Ordered — should be here Friday', required:true }] });
-  if(!r) return;
-  applyNotes(await act('noteComment', { id, text: r.text }, 'Comment added. Everyone on the note was emailed and will see it flagged.'));
+  ui.chatId = id; modalOpen = true;
+  const arch = noteArchived(n);
+  $('modalRoot').innerHTML = '<div class="modal-bg" onclick="if(event.target===this) closeChat()"><div class="modal chatmodal" role="dialog" aria-modal="true">'
+    + '<div class="chathead"><div class="cnote sticky ' + esc(n.color || 'yellow') + '" style="transform:none;min-height:0;box-shadow:none">' + esc(n.text) + '</div><button class="cx" onclick="closeChat()" aria-label="Close">×</button></div>'
+    + '<div class="chatlog" id="chatLog"></div>'
+    + (arch ? '<div class="chatlocked">This note is in the archive, so comments are read-only.</div>'
+      : '<div class="chatin"><textarea id="chatText" rows="1" placeholder="Type a message…" onkeydown="if(event.key===\'Enter\' && !event.shiftKey){ event.preventDefault(); sendChat(); }"></textarea><button class="btn btn-primary" id="chatSend" onclick="sendChat()">Send</button></div>')
+    + '</div></div>';
+  renderChat();
+  if(!arch) setTimeout(() => { const t = $('chatText'); if(t) t.focus(); }, 50);
+  clearInterval(chatTimer);
+  chatTimer = setInterval(async () => {   // pick up replies while the chat is open
+    if(!ui.chatId || document.hidden) return;
+    try { const fresh = await run('api', TOKEN, 'bootstrap', {}); D.notes = fresh.notes; D.noteComments = fresh.noteComments || []; renderChat(); } catch(e){}
+  }, 15000);
+}
+function renderChat(){
+  const log = $('chatLog'); if(!log || !ui.chatId) return;
+  const n = findNote(ui.chatId); if(!n){ closeChat(); return; }
+  const me = D.me.username;
+  const cs = (D.noteComments || []).filter(c => c.noteKey === noteKey(n) && c.kind !== 'addition').sort((a,b) => a.at < b.at ? -1 : 1);
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  log.innerHTML = cs.length ? cs.map(c => '<div class="chatmsg' + (c.byUser === me ? ' mine' : '') + '">' + esc(c.text)
+      + '<small>' + esc(c.byUser === me ? 'You' : c.byName) + ' · ' + esc(fmtDateTime(c.at)) + '</small></div>').join('')
+    : '<div class="chatempty">No comments yet.<br>Everyone on this note gets an email when you write one.</div>';
+  if(atBottom || !log.dataset.ready){ log.scrollTop = log.scrollHeight; log.dataset.ready = '1'; }
+}
+async function sendChat(){
+  const t = $('chatText'); if(!t) return;
+  const text = t.value.trim(); if(!text) return;
+  $('chatSend').disabled = true;
+  const res = await act('noteComment', { id: ui.chatId, text }, 'Sent.');
+  if($('chatSend')) $('chatSend').disabled = false;
+  if(res){
+    t.value = ''; t.focus();
+    D.notes = res.notes; D.noteComments = res.noteComments || [];
+    renderNotes(); renderChat();
+    const log = $('chatLog'); if(log) log.scrollTop = log.scrollHeight;
+  }
+}
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && ui.chatId) closeChat(); });
+function closeChat(){
+  clearInterval(chatTimer); chatTimer = null; ui.chatId = null;
+  $('modalRoot').innerHTML = ''; modalOpen = false;
+  if(D) renderNotes();
 }
 async function noteDone(id, done){
   if(done && !await confirmBox('Mark this note done?', 'It moves to the archive for everyone on it. Only an admin can reopen it.', 'Mark done')) return;
