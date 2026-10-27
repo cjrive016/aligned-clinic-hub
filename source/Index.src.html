@@ -993,7 +993,8 @@ function renderAll(){
    STICKY NOTES
    ========================================================= */
 const NOTE_COLORS = { yellow:'#FFF4A8', pink:'#FFD6E3', blue:'#D3EAFF', green:'#D6F5D6', nyellow:'#FAFF00', npink:'#FF5CC8', ngreen:'#39FF88', norange:'#FF9F1C', nblue:'#2EE6FF', npurple:'#C77DFF', nred:'#FF4D6D', nlime:'#C6FF1A' };
-let noteColor = 'yellow';
+let noteColor = loadPref('noteColor', 'yellow'); // remembers the last color you picked
+if(!NOTE_COLORS[noteColor]) noteColor = 'yellow';
 const noteArchived = n => !!(n.done || n.deleted);
 const noteKey = n => n.groupId || n.id;
 const noteWalls = n => n.walls ? String(n.walls).split(',') : [n.wall];
@@ -1097,12 +1098,12 @@ function renderNotes(){
     : admin ? 'Completed and deleted notes from everyone. Only admins can reopen or permanently remove them.'
             : 'Completed and deleted notes you were part of. These can\'t be changed. Ask an admin if something needs to be reopened.');
   // post form
-  if(!ui.noteWalls) ui.noteWalls = [me];
+  if(!ui.noteWalls) ui.noteWalls = []; // nobody (not even you) is picked until you choose
   ui.noteWalls = ui.noteWalls.filter(w => users.find(u => u.username === w));
   $('n-walls').innerHTML = users.map(u => { const on = ui.noteWalls.includes(u.username);
       return '<label class="' + (on ? 'on' : '') + '"><input type="checkbox" ' + (on ? 'checked' : '') + ' onchange="toggleNoteWall(\'' + esc(u.username) + '\', this.checked)">' + (u.username === me ? 'Me' : esc(u.name)) + '</label>'; }).join('')
     + '<button type="button" class="allbtn" onclick="allNoteWalls()">' + (ui.noteWalls.length === users.length ? 'Clear' : 'Everyone') + '</button>';
-  $('n-colors').innerHTML = Object.keys(NOTE_COLORS).map(c => '<button type="button" title="' + (c[0] === 'n' ? 'Neon ' + c.slice(1) : c) + '" class="' + (c === noteColor ? 'on' : '') + '" style="background:' + NOTE_COLORS[c] + '" onclick="noteColor=\'' + c + '\'; renderNotes()"></button>').join('');
+  $('n-colors').innerHTML = Object.keys(NOTE_COLORS).map(c => '<button type="button" title="' + (c[0] === 'n' ? 'Neon ' + c.slice(1) : c) + '" class="' + (c === noteColor ? 'on' : '') + '" style="background:' + NOTE_COLORS[c] + '" onclick="noteColor=\'' + c + '\'; savePref(\'noteColor\', noteColor); renderNotes()"></button>').join('');
   // cards
   const nameOf = u => u === me ? 'You' : userName(u);
   const comments = D.noteComments || [];
