@@ -1003,7 +1003,7 @@ function myNewNotes(){ return (D.notes || []).filter(n => n.wall === D.me.userna
 /** replies on notes I left on someone else's wall */
 function myNewReplies(){ return dedupe((D.notes || []).filter(n => n.fromUser === D.me.username && n.authorFlag && !noteArchived(n))); }
 function pickWall(v){ ui.noteView = v; renderNotes(); if(ui.tab === 'notes'){ if(v === 'mine') markNotesSeen(); if(v === 'sent') markRepliesSeen(); } }
-function openNewNotes(){ showTab('notes'); pickWall(myNewNotes().length || !myNewReplies().length ? 'mine' : 'sent'); }
+function openNewNotes(){ showTab('notes'); pickWall('mine'); }
 let replyTimer = null;
 function markRepliesSeen(){
   if(!myNewReplies().length) return;
@@ -1019,12 +1019,12 @@ function markNotesSeen(){
 function applyNotes(r){ if(!r) return; D.notes = r.notes; D.noteComments = r.noteComments || []; if(ui.tab === 'notes') renderNotes(); else renderNotesBadges(); }
 function renderNotesBadges(){
   // open notes on your wall keep counting until they are marked Done (just looking doesn't clear them)
-  const open = myOpenNotes().length, fresh = myNewNotes().length, replies = myNewReplies().length, total = open + replies;
+  // only notes other people left on YOUR wall count; notes you left for others never add to the number
+  const open = myOpenNotes().length, fresh = myNewNotes().length, total = open;
   $('noteBadge').textContent = total; $('noteBadge').classList.toggle('zero', total === 0);
   $('noteBar').classList.toggle('hidden', total === 0 || ui.tab === 'notes');
   const parts = [];
   if(open) parts.push(open + ' open sticky note' + (open === 1 ? '' : 's') + ' on your wall' + (fresh ? ' (' + fresh + ' new)' : '') + ' to finish');
-  if(replies) parts.push(replies + ' new repl' + (replies === 1 ? 'y' : 'ies') + ' on notes you left');
   $('noteBarText').textContent = 'You have ' + parts.join(' and ');
   updateTabBadge();
 }
@@ -1068,7 +1068,7 @@ function setTabBadge(count){
 }
 function updateTabBadge(){
   if(!D || !TOKEN){ setTabBadge(0); return; }
-  setTabBadge(myOpenTaskCount() + myOpenNotes().length + myNewReplies().length);
+  setTabBadge(myOpenTaskCount() + myOpenNotes().length);
 }
 /** one card per note, even if it was posted to several walls */
 function dedupe(list){ const seen = {}; return list.filter(n => { const k = noteKey(n); if(seen[k]) return false; seen[k] = 1; return true; }); }
@@ -1087,7 +1087,7 @@ function renderNotes(){
   const newCount = myNewNotes().length;
   const tab = (v, label, cnt, red) => '<button class="' + (ui.noteView === v ? 'on' : '') + '" onclick="pickWall(\'' + v + '\')">' + label + (cnt ? '<span class="cnt"' + (red ? ' style="background:var(--flag);color:#fff"' : '') + '>' + cnt + '</span>' : '') + '</button>';
   const replyCount = myNewReplies().length;
-  $('wallTabs').innerHTML = tab('mine', 'My wall', newCount || mineList.length, !!newCount) + tab('sent', 'Notes I left', replyCount || sentList.length, !!replyCount)
+  $('wallTabs').innerHTML = tab('mine', 'My wall', newCount || mineList.length, !!newCount) + tab('sent', 'Notes I left', sentList.length, false)
     + (admin ? tab('all', 'All walls (admin)', dedupe(allOpen).length) : '') + tab('archive', 'Archive', 0);
   $('wallTitle').textContent = ui.noteView === 'mine' ? 'My wall' : ui.noteView === 'sent' ? 'Notes I left for others' : ui.noteView === 'all' ? 'All walls' : 'Archive';
   $('wallHint').innerHTML = ui.noteView === 'all'
