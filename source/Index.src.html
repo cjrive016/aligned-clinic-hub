@@ -173,6 +173,8 @@
   td.empty{ text-align:center; color:var(--ink-soft); padding:28px; }
   tr.flagged{ background:var(--flag-soft); } tr.flagged:hover{ background:#F7DFDF; }
   tr.flagged td:first-child{ box-shadow:inset 4px 0 0 var(--flag); }
+  tr.expiredrow, tr.expiredrow:hover{ background:#FFF59D; }
+  tr.expiredrow td:first-child{ box-shadow:inset 5px 0 0 #F5C400; }
   tr.voided td{ color:var(--ink-faint); } tr.voided td.strike{ text-decoration:line-through; }
   .sub2{ font-size:12px; color:var(--ink-soft); margin-top:2px; }
   .rowactions{ display:flex; gap:6px; flex-wrap:wrap; }
@@ -2031,7 +2033,7 @@ function renderMeds(){
     .sort((a, b) => a.expiration < b.expiration ? -1 : a.expiration > b.expiration ? 1 : a.name.localeCompare(b.name));
   $('medBody').innerHTML = rows.length ? rows.map(m => {
     const st = medStatus(m);
-    return '<tr class="' + (st.d < 0 ? 'flagged' : '') + '">'
+    return '<tr class="' + (st.d < 0 ? 'expiredrow' : '') + '">'
       + '<td><strong>' + esc(m.name) + '</strong>' + (m.notes ? '<div class="sub2">' + esc(m.notes) + '</div>' : '') + '</td>'
       + '<td class="nowrap" style="font-variant-numeric:tabular-nums">' + esc(m.ndc) + '</td>'
       + '<td>' + esc(m.lot) + '</td>'
