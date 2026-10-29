@@ -64,7 +64,8 @@ var DEFAULT_QC_TESTS = [
 var TABLES = {
   Users:    ['username', 'name', 'email', 'role', 'salt', 'hash', 'active', 'createdAt'],
   Items:    ['id', 'name', 'category', 'owner', 'qty', 'price', 'reorderAt', 'notes', 'paid', 'paidDate', 'createdAt'],
-  Orders:   ['id', 'itemId', 'name', 'qty', 'price', 'assignTo', 'by', 'note', 'status', 'requestedAt', 'orderedAt', 'receivedAt'],
+  Orders:   ['id', 'itemId', 'name', 'qty', 'price', 'assignTo', 'by', 'note', 'status', 'requestedAt', 'orderedAt', 'receivedAt', 'supplier'],
+  Quotes:   ['id', 'item', 'supplier', 'price', 'packQty', 'notes', 'updatedBy', 'updatedAt'],
   Cleaning: ['id', 'date', 'day', 'task', 'assigned', 'assignedName', 'doneBy', 'doneByName', 'doneAt', 'offAssignment', 'late', 'comment', 'kind'],
   Pricing:  ['id', 'grp', 'sort', 'code', 'dose', 'doseMg', 'volMl', 'units', 'price', 'vial', 'updatedBy', 'updatedAt'],
   Meds:     ['id', 'name', 'ndc', 'lot', 'expiration', 'qty', 'location', 'notes', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'],
@@ -195,6 +196,8 @@ var ACTIONS = {
   orderRequest:     { fn: a_orderRequest_, write: true },
   orderCost:        { fn: a_orderCost_, write: true, admin: true },
   orderOrdered:     { fn: a_orderOrdered_, write: true, admin: true },
+  quoteSave:        { fn: a_quoteSave_, write: true, admin: true },
+  quoteDelete:      { fn: a_quoteDelete_, write: true, admin: true },
   orderReceived:    { fn: a_orderReceived_, write: true },
   orderRemove:      { fn: a_orderRemove_, write: true, admin: true },
 
@@ -250,6 +253,7 @@ function a_bootstrap_(me) {
     carryOver: carryOver_(s, week.today),
     items: clean_(rows_('Items')),
     orders: clean_(rows_('Orders')),
+    quotes: clean_(rows_('Quotes')),
     qc: clean_(rows_('QC')),
     meds: clean_(rows_('Meds')),
     events: clean_(rows_('Events')),
@@ -478,7 +482,30 @@ function sendMissed_(s, dayKey, date) {
    ===================================================================== */
 
 function supplies_() {
-  return { items: clean_(rows_('Items')), orders: clean_(rows_('Orders')) };
+  return { items: clean_(rows_('Items')), orders: clean_(rows_('Orders')), quotes: clean_(rows_('Quotes')) };
+}
+
+/* ---------- price comparison: what each supplier charges for an item ---------- */
+function a_quoteSave_(me, p) {
+  var item = str_(p.item).slice(0, 120), supplier = str_(p.supplier).slice(0, 80);
+  if (!item) throw userErr_('Which item is this price for?');
+  if (!supplier) throw userErr_('Where is this price from? (e.g. Amazon, McKesson, Henry Schein)');
+  var price = parseFloat(String(p.price == null ? '' : p.price).replace(/[$,\s]/g, ''));
+  if (!isFinite(price) || price < 0) throw userErr_('Enter the price, like 24.99.');
+  var pack = parseInt(p.packQty, 10); if (!isFinite(pack) || pack < 1) pack = 1;
+  var data = { item: item, supplier: supplier, price: String(round2_(price)), packQty: String(pack), notes: str_(p.notes).slice(0, 300),
+               updatedBy: me.name, updatedAt: nowIso_() };
+  var rec = p.id ? find_('Quotes', p.id) : null;
+  if (!rec) {   // same item + supplier → update that price instead of adding a duplicate
+    rec = rows_('Quotes').filter(function (q) { return q.item.toLowerCase() === item.toLowerCase() && q.supplier.toLowerCase() === supplier.toLowerCase(); })[0] || null;
+  }
+  if (rec) update_('Quotes', rec.id, data);
+  else { data.id = uid_(); insert_('Quotes', data); }
+  return supplies_();
+}
+function a_quoteDelete_(me, p) {
+  if (find_('Quotes', p.id)) remove_('Quotes', p.id);
+  return supplies_();
 }
 
 function owner_(v) { return CONFIG.PEOPLE.indexOf(v) >= 0 ? v : CONFIG.HOUSE; }
@@ -591,7 +618,16 @@ function a_orderCost_(me, p) {
 function a_orderOrdered_(me, p) {
   var o = find_('Orders', p.id);
   if (!o) throw userErr_('That order was removed. Refresh the page.');
-  update_('Orders', o.id, { status: 'ordered', orderedAt: nowIso_() });
+  var patch = { status: 'ordered', orderedAt: nowIso_() };
+  if (p.supplier !== undefined) patch.supplier = str_(p.supplier).slice(0, 80);
+  if (p.price !== undefined && String(p.price).trim() !== '') {
+    var pr = parseFloat(p.price);
+    if (isFinite(pr) && pr >= 0) {
+      patch.price = round2_(pr);
+      if (o.itemId && find_('Items', o.itemId)) update_('Items', o.itemId, { price: patch.price });
+    }
+  }
+  update_('Orders', o.id, patch);
   return supplies_();
 }
 

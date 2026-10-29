@@ -242,6 +242,25 @@
   .order-item.ordered{ border-color:#E8DDC3; border-left-color:var(--warn); }
   .oi-title{ font-weight:700; font-size:15.5px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   .oi-meta{ font-size:12.5px; color:var(--ink-soft); margin-top:3px; }
+  .oi-best{ color:var(--good); }
+  .pqtools{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .pqtools input#pqSearch{ max-width:280px; }
+  .pqonly{ display:inline-flex; align-items:center; gap:6px; margin:0; font-size:13.5px; text-transform:none; letter-spacing:normal; font-weight:600; color:var(--ink); }
+  .pqonly input{ margin:0; width:auto; }
+  .pqtable{ min-width:560px; } .pqtable td.num, .pqtable th.num{ text-align:right; } .pqtable td.act{ text-align:right; white-space:nowrap; }
+  .pqbest{ font-weight:800; color:var(--good); }
+  .pqmodal{ max-width:520px; }
+  .pqhead{ display:flex; align-items:flex-start; gap:10px; margin-bottom:10px; } .pqhead h3{ flex:1; margin:0; }
+  .pqhead .cx{ border:none; background:none; font-size:22px; line-height:1; cursor:pointer; color:var(--ink-soft); padding:2px 6px; }
+  .pqrows{ display:flex; flex-direction:column; gap:8px; margin-bottom:14px; }
+  .pqrow{ border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .pqrow.best{ border-color:var(--good); background:#EEF9F1; }
+  .pqmain{ display:flex; justify-content:space-between; gap:10px; align-items:baseline; flex-wrap:wrap; }
+  .pqprice{ font-weight:800; font-size:15px; }
+  .pqnote{ font-size:13px; color:var(--ink); margin-top:3px; word-break:break-word; }
+  .pqmeta{ font-size:12px; color:var(--ink-soft); margin-top:3px; }
+  .pqform{ border-top:1px solid var(--line); padding-top:12px; }
+  .pqformtitle{ font-weight:800; margin-bottom:8px; }
   @media (max-width:640px){ .order-item{ grid-template-columns:1fr; } }
   .emptymsg{ color:var(--ink-soft); padding:26px; text-align:center; background:var(--surface); border:1px dashed var(--line-strong); border-radius:var(--radius); }
   .moneygrid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-top:14px; }
@@ -525,6 +544,14 @@
       </div>
       <div class="section-title"><h2>Order queue</h2></div>
       <div id="orderList"></div>
+      <div class="section-title" style="margin-top:22px"><h2>Price comparison</h2>
+        <span class="muted">Save what each place charges, and the cheapest shows first.</span></div>
+      <div class="pqtools">
+        <input id="pqSearch" placeholder="Search items…" oninput="renderPriceList()">
+        <label class="pqonly"><input type="checkbox" id="pqOnly" onchange="renderPriceList()"> Only items with prices</label>
+        <button class="btn btn-primary btn-sm" id="pqAdd" onclick="addPriceForNew()">+ Add a price</button>
+      </div>
+      <div id="priceList"></div>
     </div>
 
     <!-- monthly -->
@@ -1384,6 +1411,120 @@ async function priceNoteEdit(){
   if(out){ D.pricing = out.pricing; renderPricing(); }
 }
 
+/* =========================================================
+   PRICE COMPARISON — what each supplier charges for an item
+   ========================================================= */
+const qKey = s => String(s || '').trim().toLowerCase();
+const unitPrice = q => Number(q.price) / Math.max(1, Number(q.packQty) || 1);
+function quotesFor(name){ return (D.quotes || []).filter(q => qKey(q.item) === qKey(name)).sort((a,b) => unitPrice(a) - unitPrice(b)); }
+function priceLabel(q){
+  const pack = Number(q.packQty) || 1;
+  return money(Number(q.price)) + (pack > 1 ? ' for ' + pack + ' (' + money(unitPrice(q)) + ' each)' : '');
+}
+function cheapestLine(name){
+  const qs = quotesFor(name); if(!qs.length) return '';
+  return '💲 Cheapest: <strong>' + esc(priceLabel(qs[0])) + '</strong> at <strong>' + esc(qs[0].supplier) + '</strong>'
+    + (qs.length > 1 ? ' · ' + qs.length + ' prices compared' : ' · only 1 price saved');
+}
+function allPriceItems(){
+  const names = {};
+  (D.items || []).forEach(i => { names[qKey(i.name)] = names[qKey(i.name)] || i.name; });
+  (D.orders || []).forEach(o => { names[qKey(o.name)] = names[qKey(o.name)] || o.name; });
+  (D.quotes || []).forEach(q => { names[qKey(q.item)] = names[qKey(q.item)] || q.item; });
+  return Object.values(names).sort((a,b) => a.localeCompare(b));
+}
+function renderPriceList(){
+  if(!$('priceList')) return;
+  const admin = isAdmin();
+  $('pqAdd').style.display = admin ? '' : 'none';
+  const q = ($('pqSearch').value || '').trim().toLowerCase();
+  const onlyPriced = $('pqOnly').checked;
+  let names = allPriceItems().filter(n => !q || n.toLowerCase().includes(q));
+  if(onlyPriced) names = names.filter(n => quotesFor(n).length);
+  ui.pqNames = names;
+  $('priceList').innerHTML = names.length ? '<div class="tablewrap"><table class="pqtable"><thead><tr><th>Item</th><th>Cheapest</th><th>Where</th><th class="num">Prices</th><th></th></tr></thead><tbody>'
+    + names.map((n, i) => { const qs = quotesFor(n), best = qs[0];
+        return '<tr><td><strong>' + esc(n) + '</strong></td>'
+          + '<td class="pqbest">' + (best ? esc(priceLabel(best)) : '<span class="muted">—</span>') + '</td>'
+          + '<td>' + (best ? esc(best.supplier) : '<span class="muted">No prices yet</span>') + '</td>'
+          + '<td class="num">' + qs.length + '</td>'
+          + '<td class="act"><button class="btn btn-white btn-sm" onclick="openPrices(ui.pqNames[' + i + '])">' + (qs.length ? 'Compare' : (admin ? '+ Add price' : 'View')) + '</button></td></tr>'; }).join('')
+    + '</tbody></table></div>'
+    : '<div class="emptymsg">' + (q ? 'No item matches "' + esc(q) + '".' : onlyPriced ? 'No prices saved yet.' : 'No items yet.') + '</div>';
+}
+function supplierNames(){ return [...new Set((D.quotes || []).map(q => q.supplier).filter(Boolean))].sort((a,b) => a.localeCompare(b)); }
+function openPrices(name){
+  ui.pqItem = name; modalOpen = true;
+  $('modalRoot').innerHTML = '<div class="modal-bg" onclick="if(event.target===this) closePrices()"><div class="modal pqmodal" role="dialog" aria-modal="true">'
+    + '<div class="pqhead"><h3 id="pqTitle"></h3><button class="cx" onclick="closePrices()" aria-label="Close">×</button></div>'
+    + '<div id="pqBody"></div></div></div>';
+  renderPrices();
+}
+function renderPrices(){
+  if(!$('pqBody') || !ui.pqItem) return;
+  const name = ui.pqItem, admin = isAdmin(), qs = quotesFor(name);
+  $('pqTitle').textContent = 'Prices — ' + name;
+  const best = qs[0] ? unitPrice(qs[0]) : 0;
+  let html = qs.length ? '<div class="pqrows">' + qs.map((q, i) => {
+      const diff = unitPrice(q) - best;
+      return '<div class="pqrow' + (i === 0 ? ' best' : '') + '"><div class="pqmain"><div><strong>' + esc(q.supplier) + '</strong>' + (i === 0 ? ' <span class="tag green">Cheapest</span>' : diff > 0 ? ' <span class="tag gray">+' + esc(money(diff * Math.max(1, Number(q.packQty) || 1))) + '</span>' : '') + '</div>'
+        + '<div class="pqprice">' + esc(priceLabel(q)) + '</div></div>'
+        + (q.notes ? '<div class="pqnote">' + linkify(q.notes) + '</div>' : '')
+        + '<div class="pqmeta">Updated ' + esc(fmtDate(q.updatedAt)) + (q.updatedBy ? ' by ' + esc(q.updatedBy) : '')
+        + (admin ? ' · <button class="btn btn-link btn-sm" onclick="editQuote(\'' + esc(q.id) + '\')">Edit</button><button class="btn btn-link btn-sm" style="color:var(--flag)" onclick="deleteQuote(\'' + esc(q.id) + '\')">Delete</button>' : '') + '</div></div>';
+    }).join('') + '</div>'
+    : '<div class="emptymsg" style="margin:6px 0 12px">No prices saved for this item yet.</div>';
+  if(admin){
+    html += '<div class="pqform"><div class="pqformtitle">Add a price</div>'
+      + '<div class="formgrid"><div class="span2"><label for="pq-sup">Where from</label><input id="pq-sup" list="pqSupList" placeholder="e.g. Amazon, McKesson, Henry Schein"><datalist id="pqSupList">' + supplierNames().map(s => '<option value="' + esc(s) + '">').join('') + '</datalist></div>'
+      + '<div><label for="pq-price">Price ($)</label><input id="pq-price" inputmode="decimal" placeholder="24.99"></div>'
+      + '<div><label for="pq-pack">How many for that price</label><input id="pq-pack" type="number" min="1" step="1" value="1" title="e.g. 100 if the price is for a box of 100"></div>'
+      + '<div class="full"><label for="pq-notes">Notes or link (optional)</label><input id="pq-notes" placeholder="Item #, link, shipping, size…" onkeydown="if(event.key===\'Enter\') saveQuote()"></div></div>'
+      + '<div class="formactions"><button class="btn btn-primary" onclick="saveQuote()">Save price</button><span class="muted">Same place again updates its price.</span></div></div>';
+  } else {
+    html += '<div class="muted" style="font-size:13px;margin-top:6px">Only an admin can add or change prices.</div>';
+  }
+  $('pqBody').innerHTML = html;
+}
+function linkify(t){ return esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">link</a>'); }
+async function saveQuote(){
+  const data = { item: ui.pqItem, supplier: $('pq-sup').value, price: $('pq-price').value, packQty: $('pq-pack').value, notes: $('pq-notes').value };
+  if(!data.supplier.trim()){ toast('Where is this price from?', true); $('pq-sup').focus(); return; }
+  if(!data.price.trim()){ toast('Enter the price.', true); $('pq-price').focus(); return; }
+  const res = await act('quoteSave', data, 'Price saved.');
+  if(res){ Object.assign(D, res); renderSupplies(); renderPrices(); }
+}
+async function editQuote(id){
+  const q = (D.quotes || []).find(x => x.id === id); if(!q) return;
+  const item = ui.pqItem;
+  closePrices(true);
+  const r = await ask({ title:'Edit price — ' + q.supplier, okText:'Save', fields:[
+    { id:'supplier', label:'Where from', value:q.supplier, required:true },
+    { id:'price', label:'Price ($)', value:q.price, required:true },
+    { id:'packQty', label:'How many for that price', type:'number', value:q.packQty || '1' },
+    { id:'notes', label:'Notes or link (optional)', value:q.notes || '' } ] });
+  if(r){ const res = await act('quoteSave', Object.assign({ id, item: q.item }, r), 'Price updated.'); if(res){ Object.assign(D, res); renderSupplies(); } }
+  openPrices(item);
+}
+async function deleteQuote(id){
+  const q = (D.quotes || []).find(x => x.id === id); if(!q) return;
+  const item = ui.pqItem;
+  closePrices(true);
+  if(await confirmBox('Delete this price?', q.supplier + ': ' + priceLabel(q), 'Delete', true)){
+    const res = await act('quoteDelete', { id }, 'Price deleted.'); if(res){ Object.assign(D, res); renderSupplies(); }
+  }
+  openPrices(item);
+}
+function closePrices(keep){
+  $('modalRoot').innerHTML = ''; modalOpen = false;
+  if(!keep) ui.pqItem = null;
+}
+async function addPriceForNew(){
+  const r = await ask({ title:'Add a price', okText:'Next', fields:[{ id:'item', label:'Item', placeholder:'e.g. Nitrile gloves, medium', required:true }] });
+  if(r) openPrices(allPriceItems().find(n => qKey(n) === qKey(r.item)) || r.item);
+}
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && ui.pqItem && $('pqBody')) closePrices(); });
+
 function showTab(name, silent){
   ui.tab = name; savePref('tab', name);
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
@@ -1672,6 +1813,7 @@ function renderSupplies(){
   renderInventory();
   renderOrders();
   renderSaved();
+  renderPriceList();
   renderMonthly();
   renderBalances();
 }
@@ -1856,7 +1998,14 @@ async function editOrderCost(id){
   if(res){ Object.assign(D, res); renderSupplies(); }
 }
 async function markOrdered(id){
-  const res = await act('orderOrdered', { id }, 'Marked ordered.');
+  const o = D.orders.find(x => x.id === id); if(!o) return;
+  const qs = quotesFor(o.name), best = qs[0];
+  const r = await ask({ title:'Mark "' + o.name + '" ordered', okText:'Mark ordered',
+    message: qs.length ? 'Saved prices (cheapest first):\n' + qs.map(q => '• ' + q.supplier + ': ' + priceLabel(q)).join('\n') : 'No prices saved for this item yet. Add where you ordered it from so you can compare next time.',
+    fields:[{ id:'supplier', label:'Ordered from', value: o.supplier || (best ? best.supplier : ''), placeholder:'e.g. Amazon' },
+            { id:'price', label:'Cost each ($) — for each one of the ' + o.qty + ' you ordered (box, case, etc.)', type:'number', step:'0.01', value: o.price ?? (best ? Number(best.price) : '') }] });
+  if(!r) return;
+  const res = await act('orderOrdered', { id, supplier: r.supplier, price: r.price }, 'Marked ordered.');
   if(res){ Object.assign(D, res); renderSupplies(); }
 }
 async function markReceived(id){
@@ -1884,10 +2033,12 @@ function renderOrders(){
     return '<div class="order-item ' + (o.status === 'ordered' ? 'ordered' : '') + '"><div>'
       + '<div class="oi-title">' + esc(o.name) + ' × ' + o.qty + ' ' + pill + '</div>'
       + '<div class="oi-meta">For: ' + whoChip(o.assignTo) + '</div>'
-      + '<div class="oi-meta">' + cost + '</div>'
+      + '<div class="oi-meta">' + cost + (o.supplier ? ' · From <strong>' + esc(o.supplier) + '</strong>' : '') + '</div>'
+      + (cheapestLine(o.name) ? '<div class="oi-meta oi-best">' + cheapestLine(o.name) + '</div>' : '')
       + '<div class="oi-meta">' + (o.by ? 'Requested by ' + esc(o.by) + ' · ' : '') + esc(fmtDate(o.requestedAt))
       + (o.status === 'ordered' && o.orderedAt ? ' · Ordered ' + esc(fmtDate(o.orderedAt)) : '') + (o.note ? ' · ' + esc(o.note) : '') + '</div>'
       + '</div><div class="rowactions">'
+      + '<button class="btn btn-white btn-sm" onclick="openPrices(D.orders.find(x => x.id === \''+o.id+'\').name)">Compare prices</button>'
       + (admin ? '<button class="btn btn-white btn-sm" onclick="editOrderCost(\''+o.id+'\')">Edit cost</button>' : '')
       + (admin && o.status === 'needs' ? '<button class="btn btn-quiet btn-sm" onclick="markOrdered(\''+o.id+'\')">Mark ordered</button>' : '')
       + '<button class="btn btn-primary btn-sm" onclick="markReceived(\''+o.id+'\')">Received</button>'
