@@ -118,8 +118,8 @@
   .card{ background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:18px 20px; margin-bottom:18px; }
   .cardhead{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
   .muted{ color:var(--ink-soft); font-size:13px; }
-  .orderwrap{ display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:18px; align-items:start; }
-  .orderwrap > .card{ margin-bottom:0; }
+  .orderwrap{ display:block; }
+  .orderwrap > .card{ margin-bottom:16px; }
   @media (max-width:860px){ .orderwrap{ grid-template-columns:1fr; } }
   .savedhint{ font-size:12.5px; margin:-4px 0 10px; }
   .savedlist{ max-height:340px; overflow-y:auto; display:flex; flex-direction:column; gap:4px; margin:0 -6px; padding:0 6px; }
@@ -249,6 +249,16 @@
   .pqonly input{ margin:0; width:auto; }
   .pqtable{ min-width:560px; } .pqtable td.num, .pqtable th.num{ text-align:right; } .pqtable td.act{ text-align:right; white-space:nowrap; }
   .pqbest{ font-weight:800; color:var(--good); }
+  .plcard{ background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:12px 14px; margin-bottom:12px; }
+  .plhead{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
+  .plhead h3{ margin:0; font-size:16px; } .plhead .btn{ margin-left:auto; }
+  .plcard .tablewrap{ box-shadow:none; }
+  .pltable{ min-width:640px; } .pltable td.num, .pltable th.num{ text-align:right; font-variant-numeric:tabular-nums; }
+  .pltable td.act{ text-align:right; white-space:nowrap; }
+  .pltable tr.plbest{ background:#EEF9F1; } .pltable tr.plbest td:first-child{ box-shadow:inset 4px 0 0 var(--good); }
+  .pltable .plprice{ font-weight:800; }
+  .pltable .plnotes{ max-width:220px; word-break:break-word; font-size:13px; }
+  .pltable .plwhen{ font-size:12.5px; white-space:nowrap; }
   .pqmodal{ max-width:520px; }
   .pqhead{ display:flex; align-items:flex-start; gap:10px; margin-bottom:10px; } .pqhead h3{ flex:1; margin:0; }
   .pqhead .cx{ border:none; background:none; font-size:22px; line-height:1; cursor:pointer; color:var(--ink-soft); padding:2px 6px; }
@@ -478,6 +488,7 @@
     <div class="subnav" id="supnav">
       <button data-sub="inventory" class="active" onclick="showSub('inventory')">Inventory</button>
       <button data-sub="ordering" onclick="showSub('ordering')">Ordering <span class="badge zero" id="orderBadge">0</span></button>
+      <button data-sub="prices" onclick="showSub('prices')">Price list</button>
       <button data-sub="monthly" onclick="showSub('monthly')">Ordered by month</button>
       <button data-sub="balances" onclick="showSub('balances')">Balances</button>
     </div>
@@ -525,7 +536,7 @@
       <div class="card">
         <div class="cardhead"><h2>Request an order</h2><span class="muted">Jacob gets an email as soon as you submit.</span></div>
         <div class="formgrid">
-          <div class="span2"><label for="o-item">Item (pick existing or type a new one)</label><input id="o-item" placeholder="Start typing — matches light up on the right" autocomplete="off" oninput="renderSaved()" onkeydown="savedKey(event)"><datalist id="itemlist"></datalist></div>
+          <div class="span2"><label for="o-item">Item (pick existing or type a new one)</label><input id="o-item" placeholder="Type an item, or pick one you ordered before" list="itemlist" autocomplete="off" oninput="renderSaved()" onkeydown="savedKey(event)"><datalist id="itemlist"></datalist></div>
           <div><label for="o-qty">Qty needed</label><input id="o-qty" type="number" min="1" step="1" value="1" onkeydown="if(event.key==='Enter')submitOrder()"></div>
           <div><label for="o-assign">Provider / Assign to *</label>
             <select id="o-assign"><option value="">Select…</option></select></div>
@@ -536,20 +547,28 @@
           <span class="muted" id="orderByHint"></span>
         </div>
       </div>
-      <div class="card savedbox">
-        <div class="cardhead"><h2>Saved items</h2><span class="muted" id="savedCount"></span></div>
-        <div class="muted savedhint">Everything you order is saved here. Type in the Item box to find one, then press <strong>Enter</strong> (or click it) to put it in the order.</div>
-        <div class="savedlist" id="savedList"></div>
-      </div>
       </div>
       <div class="section-title"><h2>Order queue</h2></div>
       <div id="orderList"></div>
-      <div class="section-title" style="margin-top:22px"><h2>Price comparison</h2>
-        <span class="muted">Save what each place charges, and the cheapest shows first.</span></div>
+    </div>
+
+    <!-- price list -->
+    <div class="sub hidden" id="sub-prices">
+      <div class="card" id="plForm">
+        <div class="cardhead"><h2>Add a price</h2><span class="muted">Put in the item, where it's from, and how much. Saving the same item + place again updates that price.</span></div>
+        <div class="formgrid">
+          <div class="span2"><label for="pl-item">Item</label><input id="pl-item" list="plItemList" placeholder="e.g. Nitrile gloves, medium" autocomplete="off"><datalist id="plItemList"></datalist></div>
+          <div class="span2"><label for="pl-sup">Where from</label><input id="pl-sup" list="plSupList" placeholder="e.g. Amazon, McKesson, Henry Schein" autocomplete="off"><datalist id="plSupList"></datalist></div>
+          <div><label for="pl-price">Price ($)</label><input id="pl-price" inputmode="decimal" placeholder="24.99" onkeydown="if(event.key==='Enter') plSave()"></div>
+          <div><label for="pl-pack">How many for that price</label><input id="pl-pack" type="number" min="1" step="1" value="1" title="e.g. 100 if the price is for a box of 100" onkeydown="if(event.key==='Enter') plSave()"></div>
+          <div class="span2"><label for="pl-notes">Notes or link (optional)</label><input id="pl-notes" placeholder="Item #, link, shipping, size…" onkeydown="if(event.key==='Enter') plSave()"></div>
+        </div>
+        <div class="formactions"><button class="btn btn-primary" id="plSaveBtn" onclick="plSave()">Save price</button></div>
+      </div>
+      <div class="section-title"><h2>Price list</h2><span class="muted" id="plCount"></span></div>
       <div class="pqtools">
-        <input id="pqSearch" placeholder="Search items…" oninput="renderPriceList()">
-        <label class="pqonly"><input type="checkbox" id="pqOnly" onchange="renderPriceList()"> Only items with prices</label>
-        <button class="btn btn-primary btn-sm" id="pqAdd" onclick="addPriceForNew()">+ Add a price</button>
+        <input id="pqSearch" placeholder="Search items or places…" oninput="renderPriceList()">
+        <label class="pqonly"><input type="checkbox" id="pqOnly" checked onchange="renderPriceList()"> Only items with prices</label>
       </div>
       <div id="priceList"></div>
     </div>
@@ -1433,24 +1452,81 @@ function allPriceItems(){
   (D.quotes || []).forEach(q => { names[qKey(q.item)] = names[qKey(q.item)] || q.item; });
   return Object.values(names).sort((a,b) => a.localeCompare(b));
 }
+function canEditQ(q){ return isAdmin() || (!!q.byUser && q.byUser === D.me.username); }
+function lastOrderOf(name){
+  return (D.orders || []).filter(o => qKey(o.name) === qKey(name) && o.orderedAt).sort((a,b) => a.orderedAt < b.orderedAt ? 1 : -1)[0];
+}
 function renderPriceList(){
   if(!$('priceList')) return;
-  const admin = isAdmin();
-  $('pqAdd').style.display = admin ? '' : 'none';
+  // entry form suggestions
+  $('plItemList').innerHTML = allPriceItems().map(n => '<option value="' + esc(n) + '">').join('');
+  $('plSupList').innerHTML = supplierNames().map(n => '<option value="' + esc(n) + '">').join('');
   const q = ($('pqSearch').value || '').trim().toLowerCase();
   const onlyPriced = $('pqOnly').checked;
-  let names = allPriceItems().filter(n => !q || n.toLowerCase().includes(q));
+  let names = allPriceItems().filter(n => !q || n.toLowerCase().includes(q) || quotesFor(n).some(x => x.supplier.toLowerCase().includes(q)));
   if(onlyPriced) names = names.filter(n => quotesFor(n).length);
+  // items with prices first, then the rest
+  names.sort((a,b) => (quotesFor(b).length ? 1 : 0) - (quotesFor(a).length ? 1 : 0) || a.localeCompare(b));
   ui.pqNames = names;
-  $('priceList').innerHTML = names.length ? '<div class="tablewrap"><table class="pqtable"><thead><tr><th>Item</th><th>Cheapest</th><th>Where</th><th class="num">Prices</th><th></th></tr></thead><tbody>'
-    + names.map((n, i) => { const qs = quotesFor(n), best = qs[0];
-        return '<tr><td><strong>' + esc(n) + '</strong></td>'
-          + '<td class="pqbest">' + (best ? esc(priceLabel(best)) : '<span class="muted">—</span>') + '</td>'
-          + '<td>' + (best ? esc(best.supplier) : '<span class="muted">No prices yet</span>') + '</td>'
-          + '<td class="num">' + qs.length + '</td>'
-          + '<td class="act"><button class="btn btn-white btn-sm" onclick="openPrices(ui.pqNames[' + i + '])">' + (qs.length ? 'Compare' : (admin ? '+ Add price' : 'View')) + '</button></td></tr>'; }).join('')
-    + '</tbody></table></div>'
-    : '<div class="emptymsg">' + (q ? 'No item matches "' + esc(q) + '".' : onlyPriced ? 'No prices saved yet.' : 'No items yet.') + '</div>';
+  const priced = allPriceItems().filter(n => quotesFor(n).length).length;
+  $('plCount').textContent = priced + ' item' + (priced === 1 ? '' : 's') + ' with prices · ' + (D.quotes || []).length + ' price' + ((D.quotes || []).length === 1 ? '' : 's') + ' saved';
+  $('priceList').innerHTML = names.length ? names.map((n, i) => {
+      const qs = quotesFor(n), best = qs[0], lo = lastOrderOf(n);
+      const rows = qs.map((x, j) => {
+        const diff = (unitPrice(x) - unitPrice(best)) * Math.max(1, Number(x.packQty) || 1);
+        return '<tr class="' + (j === 0 ? 'plbest' : '') + '"><td><strong>' + esc(x.supplier) + '</strong>' + (j === 0 && qs.length > 1 ? ' <span class="tag green">Cheapest</span>' : j > 0 && diff > 0.004 ? ' <span class="tag gray">+' + esc(money(diff)) + '</span>' : '') + '</td>'
+          + '<td class="num plprice">' + esc(money(Number(x.price))) + '</td>'
+          + '<td class="num">' + esc(String(Number(x.packQty) || 1)) + '</td>'
+          + '<td class="num">' + esc(money(unitPrice(x))) + '</td>'
+          + '<td class="plnotes">' + (x.notes ? linkify(x.notes) : '<span class="muted">—</span>') + '</td>'
+          + '<td class="plwhen">' + esc(fmtDate(x.updatedAt)) + (x.updatedBy ? '<br><span class="muted">' + esc(x.updatedBy) + '</span>' : '') + '</td>'
+          + '<td class="act">' + (canEditQ(x) ? '<button class="btn btn-link btn-sm" onclick="plEdit(\'' + esc(x.id) + '\')">Edit</button><button class="btn btn-link btn-sm" style="color:var(--flag)" onclick="plDelete(\'' + esc(x.id) + '\')">Delete</button>' : '') + '</td></tr>';
+      }).join('');
+      return '<div class="plcard"><div class="plhead"><h3>' + esc(n) + '</h3>'
+        + (lo ? '<span class="muted">Last ordered ' + esc(fmtDate(lo.orderedAt)) + (lo.supplier ? ' from <strong>' + esc(lo.supplier) + '</strong>' : '') + (lo.price != null ? ' at ' + esc(money(lo.price)) + ' each' : '') + '</span>' : '')
+        + '<button class="btn btn-white btn-sm" onclick="plAddFor(ui.pqNames[' + i + '])">+ Add price</button></div>'
+        + (qs.length ? '<div class="tablewrap"><table class="pltable"><thead><tr><th>Where</th><th class="num">Price</th><th class="num">How many</th><th class="num">Each</th><th>Notes / link</th><th>Updated</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+          : '<div class="muted" style="font-size:13px;padding:4px 2px">No prices saved yet.</div>')
+        + '</div>';
+    }).join('')
+    : '<div class="emptymsg">' + (q ? 'Nothing matches "' + esc(q) + '".' : 'No prices saved yet. Add the first one above.') + '</div>';
+}
+function plAddFor(name){
+  $('pl-item').value = name; $('pl-sup').value = ''; $('pl-price').value = ''; $('pl-pack').value = '1'; $('pl-notes').value = '';
+  $('plForm').scrollIntoView({ behavior:'smooth', block:'start' });
+  setTimeout(() => $('pl-sup').focus(), 300);
+}
+async function plSave(){
+  const data = { item: $('pl-item').value.trim(), supplier: $('pl-sup').value.trim(), price: $('pl-price').value.trim(), packQty: $('pl-pack').value, notes: $('pl-notes').value.trim() };
+  if(!data.item){ toast('What item is this price for?', true); $('pl-item').focus(); return; }
+  if(!data.supplier){ toast('Where is this price from?', true); $('pl-sup').focus(); return; }
+  if(!data.price){ toast('Enter the price.', true); $('pl-price').focus(); return; }
+  const btn = $('plSaveBtn'); btn.disabled = true;
+  const res = await act('quoteSave', data, 'Price saved.');
+  btn.disabled = false;
+  if(res){
+    Object.assign(D, res);
+    $('pl-sup').value = ''; $('pl-price').value = ''; $('pl-pack').value = '1'; $('pl-notes').value = '';
+    $('pqSearch').value = '';
+    renderSupplies(); $('pl-sup').focus();
+  }
+}
+async function plEdit(id){
+  const q = (D.quotes || []).find(x => x.id === id); if(!q) return;
+  const r = await ask({ title:'Edit price — ' + q.item, okText:'Save', fields:[
+    { id:'supplier', label:'Where from', value:q.supplier, required:true },
+    { id:'price', label:'Price ($)', value:q.price, required:true },
+    { id:'packQty', label:'How many for that price', type:'number', value:q.packQty || '1' },
+    { id:'notes', label:'Notes or link (optional)', value:q.notes || '' } ] });
+  if(!r) return;
+  const res = await act('quoteSave', Object.assign({ id, item: q.item }, r), 'Price updated.');
+  if(res){ Object.assign(D, res); renderSupplies(); }
+}
+async function plDelete(id){
+  const q = (D.quotes || []).find(x => x.id === id); if(!q) return;
+  if(!await confirmBox('Delete this price?', q.item + ' — ' + q.supplier + ': ' + priceLabel(q), 'Delete', true)) return;
+  const res = await act('quoteDelete', { id }, 'Price deleted.');
+  if(res){ Object.assign(D, res); renderSupplies(); }
 }
 function supplierNames(){ return [...new Set((D.quotes || []).map(q => q.supplier).filter(Boolean))].sort((a,b) => a.localeCompare(b)); }
 function openPrices(name){
@@ -1462,7 +1538,7 @@ function openPrices(name){
 }
 function renderPrices(){
   if(!$('pqBody') || !ui.pqItem) return;
-  const name = ui.pqItem, admin = isAdmin(), qs = quotesFor(name);
+  const name = ui.pqItem, qs = quotesFor(name);
   $('pqTitle').textContent = 'Prices — ' + name;
   const best = qs[0] ? unitPrice(qs[0]) : 0;
   let html = qs.length ? '<div class="pqrows">' + qs.map((q, i) => {
@@ -1471,18 +1547,16 @@ function renderPrices(){
         + '<div class="pqprice">' + esc(priceLabel(q)) + '</div></div>'
         + (q.notes ? '<div class="pqnote">' + linkify(q.notes) + '</div>' : '')
         + '<div class="pqmeta">Updated ' + esc(fmtDate(q.updatedAt)) + (q.updatedBy ? ' by ' + esc(q.updatedBy) : '')
-        + (admin ? ' · <button class="btn btn-link btn-sm" onclick="editQuote(\'' + esc(q.id) + '\')">Edit</button><button class="btn btn-link btn-sm" style="color:var(--flag)" onclick="deleteQuote(\'' + esc(q.id) + '\')">Delete</button>' : '') + '</div></div>';
+        + (canEditQ(q) ? ' · <button class="btn btn-link btn-sm" onclick="editQuote(\'' + esc(q.id) + '\')">Edit</button><button class="btn btn-link btn-sm" style="color:var(--flag)" onclick="deleteQuote(\'' + esc(q.id) + '\')">Delete</button>' : '') + '</div></div>';
     }).join('') + '</div>'
     : '<div class="emptymsg" style="margin:6px 0 12px">No prices saved for this item yet.</div>';
-  if(admin){
+  {
     html += '<div class="pqform"><div class="pqformtitle">Add a price</div>'
       + '<div class="formgrid"><div class="span2"><label for="pq-sup">Where from</label><input id="pq-sup" list="pqSupList" placeholder="e.g. Amazon, McKesson, Henry Schein"><datalist id="pqSupList">' + supplierNames().map(s => '<option value="' + esc(s) + '">').join('') + '</datalist></div>'
       + '<div><label for="pq-price">Price ($)</label><input id="pq-price" inputmode="decimal" placeholder="24.99"></div>'
       + '<div><label for="pq-pack">How many for that price</label><input id="pq-pack" type="number" min="1" step="1" value="1" title="e.g. 100 if the price is for a box of 100"></div>'
       + '<div class="full"><label for="pq-notes">Notes or link (optional)</label><input id="pq-notes" placeholder="Item #, link, shipping, size…" onkeydown="if(event.key===\'Enter\') saveQuote()"></div></div>'
       + '<div class="formactions"><button class="btn btn-primary" onclick="saveQuote()">Save price</button><span class="muted">Same place again updates its price.</span></div></div>';
-  } else {
-    html += '<div class="muted" style="font-size:13px;margin-top:6px">Only an admin can add or change prices.</div>';
   }
   $('pqBody').innerHTML = html;
 }
@@ -1823,7 +1897,7 @@ function renderDatalists(){
   $('catlist').innerHTML = cats.map(c => '<option value="'+esc(c)+'">').join('');
   const fc = $('filterCat'), cur = fc.value;
   fc.innerHTML = '<option value="">All categories</option>' + cats.map(c => '<option'+(c===cur?' selected':'')+'>'+esc(c)+'</option>').join('');
-  $('itemlist').innerHTML = [...new Set(D.items.map(i => i.name))].map(n => '<option value="'+esc(n)+'">').join('');
+  $('itemlist').innerHTML = [...new Set(D.items.map(i => i.name).concat((D.orders || []).map(o => o.name)))].sort((a,b) => a.localeCompare(b)).map(n => '<option value="'+esc(n)+'">').join('');
 }
 
 function submitItem(){

@@ -65,7 +65,7 @@ var TABLES = {
   Users:    ['username', 'name', 'email', 'role', 'salt', 'hash', 'active', 'createdAt'],
   Items:    ['id', 'name', 'category', 'owner', 'qty', 'price', 'reorderAt', 'notes', 'paid', 'paidDate', 'createdAt'],
   Orders:   ['id', 'itemId', 'name', 'qty', 'price', 'assignTo', 'by', 'note', 'status', 'requestedAt', 'orderedAt', 'receivedAt', 'supplier'],
-  Quotes:   ['id', 'item', 'supplier', 'price', 'packQty', 'notes', 'updatedBy', 'updatedAt'],
+  Quotes:   ['id', 'item', 'supplier', 'price', 'packQty', 'notes', 'updatedBy', 'updatedAt', 'byUser'],
   Cleaning: ['id', 'date', 'day', 'task', 'assigned', 'assignedName', 'doneBy', 'doneByName', 'doneAt', 'offAssignment', 'late', 'comment', 'kind'],
   Pricing:  ['id', 'grp', 'sort', 'code', 'dose', 'doseMg', 'volMl', 'units', 'price', 'vial', 'updatedBy', 'updatedAt'],
   Meds:     ['id', 'name', 'ndc', 'lot', 'expiration', 'qty', 'location', 'notes', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'],
@@ -196,8 +196,8 @@ var ACTIONS = {
   orderRequest:     { fn: a_orderRequest_, write: true },
   orderCost:        { fn: a_orderCost_, write: true, admin: true },
   orderOrdered:     { fn: a_orderOrdered_, write: true, admin: true },
-  quoteSave:        { fn: a_quoteSave_, write: true, admin: true },
-  quoteDelete:      { fn: a_quoteDelete_, write: true, admin: true },
+  quoteSave:        { fn: a_quoteSave_, write: true },
+  quoteDelete:      { fn: a_quoteDelete_, write: true },
   orderReceived:    { fn: a_orderReceived_, write: true },
   orderRemove:      { fn: a_orderRemove_, write: true, admin: true },
 
@@ -499,12 +499,20 @@ function a_quoteSave_(me, p) {
   if (!rec) {   // same item + supplier → update that price instead of adding a duplicate
     rec = rows_('Quotes').filter(function (q) { return q.item.toLowerCase() === item.toLowerCase() && q.supplier.toLowerCase() === supplier.toLowerCase(); })[0] || null;
   }
-  if (rec) update_('Quotes', rec.id, data);
-  else { data.id = uid_(); insert_('Quotes', data); }
+  if (rec) {
+    if (!quoteCanEdit_(me, rec)) throw userErr_((rec.updatedBy || 'Someone') + ' already saved a price from ' + rec.supplier + ' for this item. Only they or an admin can change it.');
+    update_('Quotes', rec.id, data);
+  } else { data.id = uid_(); data.byUser = me.username; insert_('Quotes', data); }
   return supplies_();
 }
+/** Admins can change any price; staff can change prices they added. */
+function quoteCanEdit_(me, q) { return me.role === 'admin' || (!!q.byUser && q.byUser === me.username); }
 function a_quoteDelete_(me, p) {
-  if (find_('Quotes', p.id)) remove_('Quotes', p.id);
+  var q = find_('Quotes', p.id);
+  if (q) {
+    if (!quoteCanEdit_(me, q)) throw userErr_('Only the person who added this price (or an admin) can delete it.');
+    remove_('Quotes', q.id);
+  }
   return supplies_();
 }
 
