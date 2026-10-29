@@ -211,6 +211,7 @@ var ACTIONS = {
   noteDelete:       { fn: a_noteDelete_, write: true },
   noteSeen:         { fn: a_noteSeen_, write: true },
   noteEdit:         { fn: a_noteEdit_, write: true },
+  noteAddPeople:    { fn: a_noteAddPeople_, write: true },
   noteComment:      { fn: a_noteComment_, write: true },
   eventSave:        { fn: a_eventSave_, write: true },
   eventDelete:      { fn: a_eventDelete_, write: true },
@@ -861,6 +862,40 @@ function noteNotify_(me, n, subject, body) {
     try { sendMail_(u.email, subject, 'Hi ' + u.name + ',\n\n' + body + '\n\nOpen the Sticky Notes tab in the Clinic Hub to see it.'); }
     catch (e) { console.warn('Note email failed: ' + e); }
   });
+}
+
+/** Bring more people onto an existing note: it goes on their wall and they share the same comments. */
+function a_noteAddPeople_(me, p) {
+  var n = mustSeeNote_(me, p.id);
+  noteLocked_(me, n);
+  var group = noteGroup_(n);
+  if (!(me.role === 'admin' || n.fromUser === me.username || group.some(function (x) { return x.wall === me.username; })))
+    throw userErr_('Only people on this note can add someone.');
+  var have = {}; group.forEach(function (x) { have[x.wall] = true; });
+  var add = [];
+  (Array.isArray(p.walls) ? p.walls : []).forEach(function (w) {
+    var u = findUser_(String(w || '').toLowerCase());
+    if (u && u.active && !have[u.username]) { have[u.username] = true; add.push(u); }
+  });
+  if (!add.length) throw userErr_('Pick someone who is not already on this note.');
+  // a single note becomes a group; keep its id as the group id so existing comments stay attached
+  var gid = n.groupId || n.id;
+  var walls = Object.keys(have);
+  group.forEach(function (x) { update_('Notes', x.id, { groupId: gid, walls: walls.join(',') }); });
+  var now = nowIso_();
+  add.forEach(function (u) {
+    insert_('Notes', { id: uid_(), wall: u.username, text: n.text, color: n.color, fromUser: n.fromUser, fromName: n.fromName,
+      createdAt: n.createdAt, seenAt: '', done: false, doneAt: '', doneBy: '', groupId: gid, walls: walls.join(','),
+      deleted: false, deletedAt: '', deletedBy: '', editedAt: n.editedAt || '' });
+    if (u.email) {
+      try {
+        sendMail_(u.email, me.name + ' added you to a sticky note',
+          'Hi ' + u.name + ',\n\n' + me.name + ' added you to a sticky note from ' + n.fromName + ' in the Clinic Hub:\n\n"' + n.text + '"\n\n' +
+          'You can see the whole comment conversation and reply. Open the Sticky Notes tab to see it.');
+      } catch (e) { console.warn('Note email failed: ' + e); }
+    }
+  });
+  return noteOut_(me);
 }
 
 function a_noteAdd_(me, p) {

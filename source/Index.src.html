@@ -1178,6 +1178,7 @@ function renderNotes(){
     if(!arch){
       acts = '<button onclick="noteDone(\'' + id + '\', true)">✓ Done</button>'
         + (n.fromUser === me ? '<button onclick="noteEdit(\'' + id + '\')">✎ Add to note</button>' : '')
+        + '<button onclick="noteAddPeople(\'' + id + '\')">👥 Add person</button>'
         + (canClose ? '<button onclick="noteDelete(\'' + id + '\')">Delete</button>' : '');
     } else if(admin){
       acts = '<button onclick="noteDone(\'' + id + '\', false)">↺ Reopen</button><button onclick="notePurge(\'' + id + '\')">Remove forever</button>';
@@ -1218,6 +1219,28 @@ function allNoteWalls(){
   ui.noteWalls = (ui.noteWalls || []).length === all.length ? [] : all;
   renderNotes();
 }
+async function noteAddPeople(id){
+  const n = findNote(id); if(!n) return;
+  const on = noteWalls(n);
+  const others = (D.users || []).filter(u => !on.includes(u.username)).sort((a,b) => a.name.localeCompare(b.name));
+  if(!others.length){ toast('Everyone is already on this note.'); return; }
+  modalOpen = true;
+  $('modalRoot').innerHTML = '<div class="modal-bg" onclick="if(event.target===this) closeAddPeople()"><div class="modal" role="dialog" aria-modal="true">'
+    + '<h3>Add someone to this note</h3>'
+    + '<div class="msg">Already on it: ' + esc(on.map(w => w === D.me.username ? 'You' : userName(w)).join(', ')) + '.\nThey get the note on their wall, an email, and can see and reply to all the comments.</div>'
+    + '<div class="wallpick" id="apList">' + others.map(u => '<label><input type="checkbox" value="' + esc(u.username) + '" onchange="this.parentNode.classList.toggle(\'on\', this.checked)">' + esc(u.name) + '</label>').join('') + '</div>'
+    + '<div class="acts"><button class="btn btn-white" onclick="closeAddPeople()">Cancel</button><button class="btn btn-primary" id="apOk">Add</button></div>'
+    + '</div></div>';
+  $('apOk').onclick = async () => {
+    const walls = [...document.querySelectorAll('#apList input:checked')].map(i => i.value);
+    if(!walls.length){ toast('Pick at least one person.', true); return; }
+    $('apOk').disabled = true;
+    const res = await act('noteAddPeople', { id, walls }, 'Added ' + walls.map(userName).join(', ') + ' — they were emailed.');
+    closeAddPeople();
+    applyNotes(res);
+  };
+}
+function closeAddPeople(){ $('modalRoot').innerHTML = ''; modalOpen = false; }
 function findNote(id){ return (D.notes || []).find(n => n.id === id); }
 async function noteEdit(id){
   const n = findNote(id); if(!n) return;
