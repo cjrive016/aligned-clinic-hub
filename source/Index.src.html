@@ -659,7 +659,8 @@
       <div class="cardhead"><h2 id="medFormTitle">Add a medication</h2><span class="muted">Medication, NDC, lot number, and expiration date</span></div>
       <div class="formgrid">
         <div class="span2"><label for="m-name">Medication</label><input id="m-name" list="medNameList" placeholder="e.g. Ceftriaxone 1 g vial"><datalist id="medNameList"></datalist></div>
-        <div><label for="m-ndc">NDC</label><input id="m-ndc" inputmode="numeric" placeholder="0409-4888-02"></div>
+        <div><label for="m-ndc">NDC (10-digit)</label><input id="m-ndc" inputmode="numeric" placeholder="0409-4888-02" oninput="autoNdc11()"></div>
+        <div><label for="m-ndc11">NDC (11-digit / billing)</label><input id="m-ndc11" inputmode="numeric" placeholder="00409-4888-02" oninput="this.dataset.auto=''"></div>
         <div><label for="m-lot">Lot #</label><input id="m-lot" placeholder="Lot number"></div>
         <div><label for="m-exp">Expiration</label><input id="m-exp" type="date"></div>
         <div><label for="m-qty">Qty on hand (optional)</label><input id="m-qty" type="number" min="0" step="1" placeholder="—"></div>
@@ -686,7 +687,7 @@
     </div>
     <div class="tablewrap">
       <table>
-        <thead><tr><th>Medication</th><th>NDC</th><th>Lot</th><th>Expiration</th><th>Status</th><th class="num">Qty</th><th>Location</th><th>Added</th><th></th></tr></thead>
+        <thead><tr><th>Medication</th><th>NDC (10 / 11)</th><th>Lot</th><th>Expiration</th><th>Status</th><th class="num">Qty</th><th>Location</th><th>Added</th><th></th></tr></thead>
         <tbody id="medBody"></tbody>
       </table>
     </div>
@@ -2332,14 +2333,14 @@ function renderMeds(){
   const f = $('medFilter').value;
   const admin = isAdmin();
   const rows = meds
-    .filter(m => !q || (m.name + ' ' + m.ndc + ' ' + m.lot).toLowerCase().replace(/-/g, '').includes(q))
+    .filter(m => !q || (m.name + ' ' + m.ndc + ' ' + (m.ndc11 || '') + ' ' + m.lot).toLowerCase().replace(/-/g, '').includes(q))
     .filter(m => !f || (f === 'expired' ? medStatus(m).d < 0 : medStatus(m).d <= 60))
     .sort((a, b) => a.expiration < b.expiration ? -1 : a.expiration > b.expiration ? 1 : a.name.localeCompare(b.name));
   $('medBody').innerHTML = rows.length ? rows.map(m => {
     const st = medStatus(m);
     return '<tr class="' + (st.d < 0 ? 'expiredrow' : '') + '">'
       + '<td><strong>' + esc(m.name) + '</strong>' + (m.notes ? '<div class="sub2">' + esc(m.notes) + '</div>' : '') + '</td>'
-      + '<td class="nowrap" style="font-variant-numeric:tabular-nums">' + esc(m.ndc) + '</td>'
+      + '<td class="nowrap" style="font-variant-numeric:tabular-nums">' + (m.ndc ? esc(m.ndc) : '<span class="muted">—</span>') + '<div class="sub2">11: ' + ((m.ndc11 || ndc11Of(m.ndc)) ? esc(m.ndc11 || ndc11Of(m.ndc)) : '—') + '</div></td>'
       + '<td>' + esc(m.lot) + '</td>'
       + '<td class="nowrap">' + esc(parseYmd(m.expiration).toLocaleDateString([], {month:'short', day:'numeric', year:'numeric'})) + '</td>'
       + '<td class="nowrap"><span class="tag ' + st.cls + '">' + esc(st.label) + '</span></td>'
@@ -2350,21 +2351,33 @@ function renderMeds(){
       + (admin ? '<button class="btn btn-white btn-sm" onclick="deleteMed(\''+m.id+'\')">Delete</button>' : '') + '</div></td></tr>';
   }).join('') : '<tr><td colspan="9" class="empty">' + (meds.length ? 'Nothing matches.' : 'No medications listed yet — add the first one above.') + '</td></tr>';
 }
-function clearMedForm(){ ['m-name','m-ndc','m-lot','m-exp','m-qty','m-loc','m-notes'].forEach(id => $(id).value = ''); }
+function clearMedForm(){ ['m-name','m-ndc','m-ndc11','m-lot','m-exp','m-qty','m-loc','m-notes'].forEach(id => $(id).value = ''); $('m-ndc11').dataset.auto = ''; }
+/* 10-digit NDC with dashes (4-4-2, 5-3-2, 5-4-1) → 11-digit 5-4-2 by adding the missing leading zero */
+function ndc11Of(ndc){
+  const m = String(ndc || '').trim().match(/^(\d{4,5})-(\d{3,4})-(\d{1,2})$/);
+  if(!m || (m[1] + m[2] + m[3]).length !== 10) return '';
+  return m[1].padStart(5, '0') + '-' + m[2].padStart(4, '0') + '-' + m[3].padStart(2, '0');
+}
+function autoNdc11(){
+  const f = $('m-ndc11');
+  if(f.value && !f.dataset.auto) return;   // don't overwrite what someone typed
+  const v = ndc11Of($('m-ndc').value);
+  f.value = v; f.dataset.auto = v ? '1' : '';
+}
 function cancelMedEdit(){ medEditingId = null; clearMedForm(); $('medFormTitle').textContent = 'Add a medication'; $('medBtn').textContent = 'Add to list'; $('medCancel').classList.add('hidden'); }
 function editMed(id){
   const m = (D.meds || []).find(x => x.id === id); if(!m) return;
   medEditingId = id;
-  $('m-name').value = m.name; $('m-ndc').value = m.ndc; $('m-lot').value = m.lot; $('m-exp').value = m.expiration;
+  $('m-name').value = m.name; $('m-ndc').value = m.ndc; $('m-ndc11').value = m.ndc11 || ''; $('m-ndc11').dataset.auto = ''; $('m-lot').value = m.lot; $('m-exp').value = m.expiration;
   $('m-qty').value = m.qty ?? ''; $('m-loc').value = m.location || ''; $('m-notes').value = m.notes || '';
   $('medFormTitle').textContent = 'Edit — ' + m.name; $('medBtn').textContent = 'Save changes'; $('medCancel').classList.remove('hidden');
   window.scrollTo({ top:0, behavior:'smooth' });
 }
 async function submitMed(){
-  const p = { id: medEditingId || '', name: $('m-name').value.trim(), ndc: $('m-ndc').value.trim(), lot: $('m-lot').value.trim(),
+  const p = { id: medEditingId || '', name: $('m-name').value.trim(), ndc: $('m-ndc').value.trim(), ndc11: $('m-ndc11').value.trim(), lot: $('m-lot').value.trim(),
     expiration: $('m-exp').value, qty: $('m-qty').value, location: $('m-loc').value, notes: $('m-notes').value };
   if(!p.name){ toast('Please enter the medication name.', true); $('m-name').focus(); return; }
-  if(!p.ndc){ toast('Please enter the NDC.', true); $('m-ndc').focus(); return; }
+  if(!p.ndc && !p.ndc11){ toast('Please enter the NDC (10-digit, 11-digit, or both).', true); $('m-ndc').focus(); return; }
   if(!p.lot){ toast('Please enter the lot number.', true); $('m-lot').focus(); return; }
   if(!p.expiration){ toast('Please pick the expiration date.', true); $('m-exp').focus(); return; }
   const digits = p.ndc.replace(/\D/g, '').length;
@@ -2383,8 +2396,8 @@ async function deleteMed(id){
   if(res){ D.meds = res.meds; renderMeds(); }
 }
 function exportMedsCSV(){
-  const rows = [['Medication','NDC','Lot','Expiration','Status','Qty','Location','Notes','Added by','Added on','Last updated by','Last updated']];
-  (D.meds || []).slice().sort((a,b) => a.expiration < b.expiration ? -1 : 1).forEach(m => rows.push([m.name, m.ndc, m.lot, m.expiration, medStatus(m).label, m.qty ?? '', m.location, m.notes, m.addedBy, fmtDate(m.addedAt), m.updatedBy, fmtDateTime(m.updatedAt)]));
+  const rows = [['Medication','NDC (10-digit)','NDC (11-digit)','Lot','Expiration','Status','Qty','Location','Notes','Added by','Added on','Last updated by','Last updated']];
+  (D.meds || []).slice().sort((a,b) => a.expiration < b.expiration ? -1 : 1).forEach(m => rows.push([m.name, m.ndc, m.ndc11 || '', m.lot, m.expiration, medStatus(m).label, m.qty ?? '', m.location, m.notes, m.addedBy, fmtDate(m.addedAt), m.updatedBy, fmtDateTime(m.updatedAt)]));
   downloadCSV(rows, 'ndc-lot-list.csv');
 }
 

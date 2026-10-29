@@ -68,7 +68,7 @@ var TABLES = {
   Quotes:   ['id', 'item', 'supplier', 'price', 'packQty', 'notes', 'updatedBy', 'updatedAt', 'byUser'],
   Cleaning: ['id', 'date', 'day', 'task', 'assigned', 'assignedName', 'doneBy', 'doneByName', 'doneAt', 'offAssignment', 'late', 'comment', 'kind'],
   Pricing:  ['id', 'grp', 'sort', 'code', 'dose', 'doseMg', 'volMl', 'units', 'price', 'vial', 'updatedBy', 'updatedAt'],
-  Meds:     ['id', 'name', 'ndc', 'lot', 'expiration', 'qty', 'location', 'notes', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'],
+  Meds:     ['id', 'name', 'ndc', 'ndc11', 'lot', 'expiration', 'qty', 'location', 'notes', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'],
   Swaps:    ['id', 'date', 'task', 'fromName', 'toName', 'coverId', 'origDate', 'createdAt'],
   Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls', 'deleted', 'deletedAt', 'deletedBy', 'editedAt', 'authorFlag'],
   NoteComments: ['id', 'noteKey', 'text', 'byUser', 'byName', 'at', 'kind'],
@@ -717,21 +717,33 @@ function notifyOrders_(list) {
    NDC / LOT LIST
    ===================================================================== */
 
+/** 10-digit NDC (4-4-2, 5-3-2 or 5-4-1) → 11-digit billing NDC (5-4-2). Needs the dashes to know where the zero goes. */
+function ndc11Of_(ndc) {
+  var m = String(ndc || '').match(/^(\d{4,5})-(\d{3,4})-(\d{1,2})$/);
+  if (!m) return '';
+  var a = m[1], b = m[2], c = m[3];
+  if (a.length + b.length + c.length !== 10) return '';
+  return ('00000' + a).slice(-5) + '-' + ('0000' + b).slice(-4) + '-' + ('00' + c).slice(-2);
+}
 function a_medSave_(me, p) {
-  var name = str_(p.name), ndc = str_(p.ndc), lot = str_(p.lot), exp = str_(p.expiration);
+  var name = str_(p.name), ndc = str_(p.ndc), ndc11 = str_(p.ndc11), lot = str_(p.lot), exp = str_(p.expiration);
+  var digits = function (v) { return v.replace(/\D/g, '').length; };
   if (!name) throw userErr_('Please enter the medication name.');
-  if (!ndc) throw userErr_('Please enter the NDC.');
-  if (!/^[0-9-]{8,14}$/.test(ndc)) throw userErr_('The NDC should be numbers and dashes, like 0409-4888-02.');
+  if (ndc && digits(ndc) === 11 && !ndc11) { ndc11 = ndc; ndc = ''; }   // an 11-digit number typed in the 10-digit box
+  if (!ndc && !ndc11) throw userErr_('Please enter the NDC (10-digit, 11-digit, or both).');
+  if (ndc && (!/^[0-9-]+$/.test(ndc) || digits(ndc) !== 10)) throw userErr_('The 10-digit NDC should be 10 numbers, like 0409-4888-02.');
+  if (ndc11 && (!/^[0-9-]+$/.test(ndc11) || digits(ndc11) !== 11)) throw userErr_('The 11-digit NDC should be 11 numbers, like 00409-4888-02.');
+  if (!ndc11 && ndc) ndc11 = ndc11Of_(ndc);
   if (!lot) throw userErr_('Please enter the lot number.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(exp)) throw userErr_('Please pick the expiration date.');
   var qty = (p.qty === '' || p.qty === null || p.qty === undefined) ? null : Math.max(0, parseInt(p.qty, 10) || 0);
-  var rec = { name: name, ndc: ndc, lot: lot, expiration: exp, qty: qty, location: str_(p.location), notes: str_(p.notes),
+  var rec = { name: name, ndc: ndc, ndc11: ndc11, lot: lot, expiration: exp, qty: qty, location: str_(p.location), notes: str_(p.notes),
               updatedBy: me.name, updatedAt: nowIso_() };
   if (p.id) {
     if (!find_('Meds', p.id)) throw userErr_('That entry was deleted. Refresh the page.');
     update_('Meds', p.id, rec);
   } else {
-    var dup = rows_('Meds').filter(function (m) { return m.ndc === ndc && m.lot.toLowerCase() === lot.toLowerCase(); })[0];
+    var dup = rows_('Meds').filter(function (m) { return ((ndc && m.ndc === ndc) || (ndc11 && m.ndc11 === ndc11)) && m.lot.toLowerCase() === lot.toLowerCase(); })[0];
     if (dup) throw userErr_('That NDC and lot is already on the list. Edit the existing entry instead.');
     rec.id = uid_(); rec.addedBy = me.name; rec.addedAt = nowIso_();
     insert_('Meds', rec);
