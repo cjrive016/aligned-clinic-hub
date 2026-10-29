@@ -860,8 +860,25 @@ function mustSeeNote_(me, id) {
   if (!n || !canSeeNote_(me, n)) throw userErr_('That note was removed. Refresh the page.');
   return n;
 }
+/** A shared note is only locked once it is archived on EVERY wall it was posted to. */
 function noteLocked_(me, n) {
-  if (noteArchived_(n)) throw userErr_('This note is in the archive. Only an admin can change archived notes.');
+  if (noteGroup_(n).every(noteArchived_)) throw userErr_('This note is in the archive. Only an admin can change archived notes.');
+}
+/** Which copies an action applies to: 'mine' = just the copy on my wall; 'all' = every wall. */
+function noteTargets_(me, n, scope, verb) {
+  var group = noteGroup_(n).filter(function (x) { return !noteArchived_(x); });
+  if (scope === 'all') {
+    var isWriter = me.role === 'admin' || n.fromUser === me.username;
+    // anyone on the note can mark it done for everyone; only the writer (or an admin) can delete it for everyone
+    if (verb === 'delete' ? !isWriter : !(isWriter || noteGroup_(n).some(function (x) { return x.wall === me.username; })))
+      throw userErr_(verb === 'delete' ? 'Only the person who wrote this note (or an admin) can delete it for everyone. You can take it off your own wall.' : 'Only people on this note can ' + verb + ' it.');
+    return group;
+  }
+  var mine = group.filter(function (x) { return x.wall === me.username; });
+  if (mine.length) return mine;
+  // not on my wall: the writer (or an admin) acts on the whole note
+  if (me.role === 'admin' || n.fromUser === me.username) return group;
+  throw userErr_('This note is not on your wall.');
 }
 function noteNotify_(me, n, subject, body) {
   var to = {};
@@ -986,9 +1003,8 @@ function a_noteDone_(me, p) {
     return noteOut_(me);
   }
   noteLocked_(me, n);
-  if (!noteCanClose_(me, n)) throw userErr_('Only the person whose wall it is (or who wrote it) can mark this done.');
   var at = nowIso_();
-  noteGroup_(n).forEach(function (x) { update_('Notes', x.id, { done: true, doneAt: at, doneBy: me.name }); });
+  noteTargets_(me, n, p.scope, 'mark done').forEach(function (x) { update_('Notes', x.id, { done: true, doneAt: at, doneBy: me.name }); });
   return noteOut_(me);
 }
 function a_noteDelete_(me, p) {
@@ -996,16 +1012,15 @@ function a_noteDelete_(me, p) {
   if (!n) return noteOut_(me);
   if (!canSeeNote_(me, n)) throw userErr_('That note was removed. Refresh the page.');
   noteLocked_(me, n);
-  if (!noteCanClose_(me, n)) throw userErr_('Only the person whose wall it is (or who wrote it) can delete this note.');
   var at = nowIso_();
-  noteGroup_(n).forEach(function (x) { update_('Notes', x.id, { deleted: true, deletedAt: at, deletedBy: me.name }); });
+  noteTargets_(me, n, p.scope, 'delete').forEach(function (x) { update_('Notes', x.id, { deleted: true, deletedAt: at, deletedBy: me.name }); });
   return noteOut_(me);
 }
 /** Admin only: permanently remove an archived note and its comments. */
 function a_notePurge_(me, p) {
   var n = find_('Notes', p.id);
   if (n) {
-    if (!noteArchived_(n)) throw userErr_('Archive the note first (mark it done or delete it).');
+    if (!noteGroup_(n).every(noteArchived_)) throw userErr_('This note is still open on someone\'s wall. It can only be removed once it is done or deleted for everyone.');
     var key = noteKey_(n);
     noteGroup_(n).forEach(function (x) { remove_('Notes', x.id); });
     rows_('NoteComments').filter(function (c) { return c.noteKey === key; }).forEach(function (c) { remove_('NoteComments', c.id); });

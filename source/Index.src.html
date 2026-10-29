@@ -80,6 +80,9 @@
   .sticky.isdone{ opacity:.8; transform:none; }
   .sticky.isdel{ opacity:.7; transform:none; filter:grayscale(.5); }
   .sticky.isdel .ntext{ text-decoration:line-through; }
+  .sticky .wst{ font-size:11px; font-weight:700; padding:0 5px; border-radius:6px; background:rgba(255,255,255,.7); }
+  .sticky .wst.ok{ color:var(--good); } .sticky .wst.del{ color:var(--flag); }
+  .scopebtns{ display:flex; flex-direction:column; gap:8px; margin-top:6px; }
   .sticky .nadd{ font-size:14px; color:#2a2a2a; border-left:3px solid rgba(0,0,0,.25); padding-left:7px; white-space:pre-wrap; word-break:break-word; }
   .sticky .nadd small{ display:block; font-size:11px; color:#777; font-style:italic; }
   .sticky .ncomments{ border-top:1px dashed rgba(0,0,0,.18); padding-top:6px; display:flex; flex-direction:column; gap:5px; }
@@ -1140,7 +1143,10 @@ function renderNotes(){
   if(!['mine','sent','all','archive'].includes(ui.noteView) || (ui.noteView === 'all' && !admin)) ui.noteView = 'mine';
   const mineList = notes.filter(n => n.wall === me && !noteArchived(n));
   const sentList = dedupe(notes.filter(n => n.fromUser === me && !noteArchived(n) && noteWalls(n).some(w => w !== me)));
-  const archList = dedupe(notes.filter(noteArchived));
+  // archive: copies I took off my own wall, plus notes that are finished on every wall
+  const allClosed = n => notes.filter(x => noteKey(x) === noteKey(n)).every(noteArchived);
+  const archList = dedupe(notes.filter(n => noteArchived(n) && (n.wall === me || allClosed(n)))
+    .sort((a,b) => (a.wall === me ? 0 : 1) - (b.wall === me ? 0 : 1)));
   const allOpen = notes.filter(n => !noteArchived(n));
   if(ui.allWall && !users.find(u => u.username === ui.allWall)) ui.allWall = '';
   const allList = ui.allWall ? allOpen.filter(n => n.wall === ui.allWall) : dedupe(allOpen);
@@ -1189,7 +1195,8 @@ function renderNotes(){
       + (arch ? '<div class="nstatus ' + (n.deleted ? 'del' : 'ok') + '">' + (n.deleted ? '🗑 Deleted by ' + esc(n.deletedBy) + ' · ' + esc(fmtDateTime(n.deletedAt)) : '✓ Completed by ' + esc(n.doneBy) + ' · ' + esc(fmtDateTime(n.doneAt))) + '</div>' : '')
       + '<div class="ntext">' + esc(n.text) + '</div>'
       + adds.map(c => '<div class="nadd">+ ' + esc(c.text) + '<small>added ' + esc(fmtDateTime(c.at)) + '</small></div>').join('')
-      + '<div class="nmeta">From <strong>' + esc(n.fromUser === me ? 'You' : n.fromName) + '</strong> → ' + esc(noteWalls(n).map(nameOf).join(', ')) + '<br>' + esc(fmtDateTime(n.createdAt)) + '</div>'
+      + '<div class="nmeta">From <strong>' + esc(n.fromUser === me ? 'You' : n.fromName) + '</strong> → ' + noteWalls(n).map(w => { const c = copyOn(n, w);
+          return esc(nameOf(w)) + (c && c.done ? ' <span class="wst ok" title="Done">✓ done</span>' : c && c.deleted ? ' <span class="wst del" title="Took it off their wall">removed</span>' : ''); }).join(', ') + '<br>' + esc(fmtDateTime(n.createdAt)) + '</div>'
       + '<div class="nact"><button onclick="openChat(\'' + id + '\')">💬 Comments' + (cs.length ? ' (' + cs.length + ')' : '') + '</button>' + acts + '</div>'
       + '</div>';
   };
@@ -1301,13 +1308,45 @@ function closeChat(){
   $('modalRoot').innerHTML = ''; modalOpen = false;
   if(D) renderNotes();
 }
+/** the copy of a shared note that sits on a given person's wall */
+function copyOn(n, wall){ return (D.notes || []).find(x => noteKey(x) === noteKey(n) && x.wall === wall); }
+function openCopies(n){ return (D.notes || []).filter(x => noteKey(x) === noteKey(n) && !noteArchived(x)); }
+/** shared note → ask "just me" or "everyone" */
+function scopeBox(title, verbMine, verbAll, danger){
+  return new Promise(resolve => {
+    modalOpen = true;
+    const close = v => { $('modalRoot').innerHTML = ''; modalOpen = false; resolve(v); };
+    $('modalRoot').innerHTML = '<div class="modal-bg"><div class="modal" role="dialog" aria-modal="true"><h3>' + esc(title) + '</h3>'
+      + '<div class="msg">This note is on more than one wall. Only an admin can reopen it from the archive.</div>'
+      + '<div class="scopebtns"><button class="btn btn-primary" id="scMine">' + esc(verbMine) + '</button>'
+      + '<button class="btn ' + (danger ? 'btn-flag' : 'btn-white') + '" id="scAll">' + esc(verbAll) + '</button>'
+      + '<button class="btn btn-link" id="scCancel">Cancel</button></div></div></div>';
+    $('scMine').onclick = () => close('mine'); $('scAll').onclick = () => close('all'); $('scCancel').onclick = () => close(null);
+  });
+}
 async function noteDone(id, done){
-  if(done && !await confirmBox('Mark this note done?', 'It moves to the archive for everyone on it. Only an admin can reopen it.', 'Mark done')) return;
-  applyNotes(await act('noteDone', { id, done }, done ? 'Done ✓ — moved to the archive.' : 'Reopened.'));
+  if(!done){ applyNotes(await act('noteDone', { id, done }, 'Reopened.')); return; }
+  const n = findNote(id); if(!n) return;
+  const me = D.me.username, shared = openCopies(n).length > 1, onMine = !!(copyOn(n, me) && !noteArchived(copyOn(n, me)));
+  let scope = 'all';
+  if(shared && onMine){
+    scope = await scopeBox('Mark this note done?', 'Done with my part — take it off my wall only', 'Done for everyone');
+    if(!scope) return;
+  } else if(!await confirmBox('Mark this note done?', shared ? 'It comes off every wall it is still on and moves to the archive.' : 'It moves to the archive. Only an admin can reopen it.', 'Mark done')) return;
+  const mid = scope === 'mine' ? copyOn(n, me).id : id;
+  applyNotes(await act('noteDone', { id: mid, done: true, scope }, scope === 'mine' ? 'Done ✓ — taken off your wall. Everyone else still has it.' : 'Done ✓ — moved to the archive.'));
 }
 async function noteDelete(id){
-  if(!await confirmBox('Delete this sticky note?', 'It is removed from every wall and kept in the archive. Only an admin can reopen it.', 'Delete', true)) return;
-  applyNotes(await act('noteDelete', { id }, 'Note deleted — kept in the archive.'));
+  const n = findNote(id); if(!n) return;
+  const me = D.me.username, shared = openCopies(n).length > 1, mine = copyOn(n, me), onMine = !!(mine && !noteArchived(mine));
+  const canAll = isAdmin() || n.fromUser === me;
+  let scope = onMine ? 'mine' : 'all';
+  if(shared && onMine && canAll){
+    scope = await scopeBox('Delete this sticky note?', 'Take it off my wall only', 'Delete it for everyone', true);
+    if(!scope) return;
+  } else if(!await confirmBox('Delete this sticky note?', shared && onMine ? 'It comes off YOUR wall only. Everyone else keeps it. It stays in your archive.' : shared ? 'It comes off every wall it is still on and is kept in the archive.' : 'It is kept in the archive. Only an admin can reopen it.', 'Delete', true)) return;
+  const mid = scope === 'mine' && mine ? mine.id : id;
+  applyNotes(await act('noteDelete', { id: mid, scope }, scope === 'mine' && shared ? 'Taken off your wall. Everyone else still has it.' : 'Note deleted — kept in the archive.'));
 }
 async function notePurge(id){
   if(!await confirmBox('Remove forever?', 'This permanently erases the note and its comments from the archive. This cannot be undone.', 'Remove forever', true)) return;
