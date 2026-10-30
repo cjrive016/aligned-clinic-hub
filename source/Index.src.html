@@ -307,6 +307,7 @@
   .callegend span{ display:inline-flex; align-items:center; gap:5px; }
   .callegend i{ width:12px; height:12px; border-radius:3px; display:inline-block; border:1px solid rgba(0,0,0,.25); }
   .callegend .me{ font-weight:800; color:var(--ink); }
+  .callegend .ccpick{ cursor:pointer; border-radius:6px; padding:1px 5px; } .callegend .ccpick:hover{ background:var(--brand-soft); }
   .calmine{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:12.5px; color:var(--ink-soft); margin:-4px 0 10px; }
   .calmine button{ width:20px; height:20px; border-radius:5px; border:2px solid transparent; cursor:pointer; padding:0; }
   .calmine button.on{ border-color:var(--ink); }
@@ -1377,7 +1378,9 @@ const CAL_COLORS = ['ngreen','nblue','npink','norange','npurple','nyellow','nred
 const EV_ICON = { off:'🌴', rep:'🍽', meeting:'👥', other:'📌' };
 function personColors(){
   const set = Object.assign({}, D.calColors || {});
-  if(!set.jacob) set.jacob = 'ngreen';
+  if(!set.jacob) set.jacob = 'ngreen';   // Jacob: neon green
+  const erica = (D.users || []).find(u => u.username === 'erica' || /^erica\b/i.test(u.name || ''));
+  if(erica && !set[erica.username]) set[erica.username] = 'npink';   // Erica: neon pink
   const used = new Set(Object.values(set));
   const names = [...new Set((D.users || []).map(u => u.username).concat((D.events || []).map(e => e.byUser)))].filter(Boolean).sort();
   const free = CAL_COLORS.filter(c => !used.has(c));
@@ -1385,9 +1388,20 @@ function personColors(){
   return set;
 }
 function evStyle(e){ const c = NOTE_COLORS[personColors()[e.byUser]] || '#E5E9EF'; return 'background:' + c + ';border-color:rgba(0,0,0,.35);color:#1a1a1a'; }
-async function setCalColor(color){
-  const res = await act('calColor', { color }, 'Your calendar color is saved.');
+async function setCalColor(user, color){
+  const res = await act('calColor', { user, color }, userName(user) + '\'s calendar color is saved.');
   if(res){ D.calColors = res.calColors; renderCalendar(); }
+}
+async function pickCalColor(user){
+  if(D.me.role !== 'admin') return;
+  const cur = personColors()[user];
+  modalOpen = true;
+  $('modalRoot').innerHTML = '<div class="modal-bg" onclick="if(event.target===this){ $(\'modalRoot\').innerHTML=\'\'; modalOpen=false; }"><div class="modal" role="dialog" aria-modal="true">'
+    + '<h3>Calendar color for ' + esc(user === D.me.username ? 'you' : userName(user)) + '</h3>'
+    + '<div class="calmine" style="margin:10px 0 4px">' + CAL_COLORS.map(c => '<button type="button" title="' + (c[0] === 'n' ? 'Neon ' + c.slice(1) : c) + '" class="' + (cur === c ? 'on' : '') + '" style="width:34px;height:34px;background:' + NOTE_COLORS[c] + '" data-c="' + c + '"></button>').join('') + '</div>'
+    + '<div class="acts"><button class="btn btn-white" id="ccCancel">Cancel</button></div></div></div>';
+  $('ccCancel').onclick = () => { $('modalRoot').innerHTML = ''; modalOpen = false; };
+  document.querySelectorAll('#modalRoot .calmine button').forEach(b => b.onclick = async () => { $('modalRoot').innerHTML = ''; modalOpen = false; await setCalColor(user, b.dataset.c); });
 }
 const canEditEv = e => D.me.role === 'admin' || e.byUser === D.me.username;
 function evOn(ymd){
@@ -1402,10 +1416,11 @@ function renderCalendar(){
   // legend: everyone's color + pick your own
   const pc = personColors(), me = D.me.username;
   const people = (D.users || []).slice().sort((a,b) => a.username === me ? -1 : b.username === me ? 1 : a.name.localeCompare(b.name));
-  $('calLegend').innerHTML = people.map(u => '<span' + (u.username === me ? ' class="me"' : '') + '><i style="background:' + (NOTE_COLORS[pc[u.username]] || '#ddd') + '"></i>' + esc(u.username === me ? 'You' : u.name) + '</span>').join('')
+  const admin = D.me.role === 'admin';
+  $('calLegend').innerHTML = people.map(u => '<span' + (u.username === me ? ' class="me"' : '') + (admin ? ' class="ccpick" title="Change color" onclick="pickCalColor(\'' + esc(u.username) + '\')"' : '') + '><i style="background:' + (NOTE_COLORS[pc[u.username]] || '#ddd') + '"></i>' + esc(u.username === me ? 'You' : u.name) + '</span>').join('')
     + '<span class="muted">· 🌴 day off · 🍽 rep lunch · 👥 meeting · 📌 other</span>';
-  $('calMine').innerHTML = 'Your color: ' + CAL_COLORS.map(c => '<button type="button" title="' + (c[0] === 'n' ? 'Neon ' + c.slice(1) : c) + '" class="' + (pc[me] === c ? 'on' : '') + '" style="background:' + NOTE_COLORS[c] + '" onclick="setCalColor(\'' + c + '\')"></button>').join('')
-    + '<span class="muted">· Tap a day to add something. You can only change or delete what you added.</span>';
+  $('calMine').innerHTML = (admin ? '<span>Admin: tap a name above to change that person\'s color.</span> ' : '')
+    + '<span class="muted">Tap a day to add something. You can only change or delete what you added.</span>';
   const start = new Date(first); start.setDate(1 - first.getDay());
   const today = D.today || ymdOf(new Date());
   let html = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => '<div class="caldow">' + d + '</div>').join('');
