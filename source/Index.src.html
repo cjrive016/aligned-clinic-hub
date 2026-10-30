@@ -225,6 +225,7 @@
   .task.missed .tick{ border-color:var(--flag); }
   .carryhead{ display:flex; align-items:center; gap:8px; margin:4px 0 6px; font-weight:800; color:var(--flag); font-size:14px; }
   .task.carry{ background:#FFF6F5; border-radius:10px; padding-left:8px; padding-right:8px; }
+  .swapbtn{ padding:0 4px !important; font-size:12px !important; vertical-align:1px; }
   .swaptag{ display:inline-block; font-size:11.5px; font-weight:700; background:var(--warn-soft); color:#8A5A12; border-radius:999px; padding:2px 8px; margin-left:6px; vertical-align:2px; }
   .task.half .tick{ background:var(--warn-soft); border-color:var(--warn); color:var(--warn); font-weight:800; font-size:12px; display:flex; align-items:center; justify-content:center; }
   .task .tname{ font-weight:650; font-size:15px; }
@@ -1699,15 +1700,21 @@ function personName(label){ const u = personUser(label); return u ? u.name : lab
 function assigneesOf(day, task){
   const n = whoOf(day, task); if(!n) return [];
   if(!isTeamLabel(n)) return [n];
-  const seen = {}, out = [];
-  sched(day).tasks.forEach(t => { const x = whoOf(day, t); if(x && !isTeamLabel(x) && !seen[x.toLowerCase()]){ seen[x.toLowerCase()] = 1; out.push(x); } });
+  return dayPeople(day);
+}
+/* everyone on cleaning that day: scheduled people plus anyone swapped in (someone swapped off a task still shares Team jobs) */
+function dayPeople(day){
+  const d = sched(day), seen = {}, out = [];
+  const add = x => { x = String(x || '').trim(); if(!x || isTeamLabel(x)) return; const u = personUser(x); const k = (u ? u.username : x).toLowerCase(); if(seen[k]) return; seen[k] = 1; out.push(x); };
+  (d.tasks || []).forEach(t => add((d.rawWho || {})[t]));
+  (d.tasks || []).forEach(t => add((d.who || {})[t]));
   return out;
 }
 function isMine(label){ const u = personUser(label); return !!(u && u.username === D.me.username); }
 function isMyTask(day, task){ return assigneesOf(day, task).some(isMine); }
 function teamOf(day){
   const seen = {}; const out = [];
-  sched(day).tasks.forEach(t => { const n = whoOf(day, t); if(!n || isTeamLabel(n)) return; const disp = personName(n); if(seen[disp.toLowerCase()]) return; seen[disp.toLowerCase()] = 1; out.push(disp); });
+  dayPeople(day).forEach(n => { const disp = personName(n); if(seen[disp.toLowerCase()]) return; seen[disp.toLowerCase()] = 1; out.push(disp); });
   return out;
 }
 
@@ -1792,7 +1799,8 @@ function renderCleaning(){
     const txt = isTeamLabel(n) ? 'Team: ' + assigneesOf(day, t).map(personName).join(' + ') : personName(n);
     const sw = (sched(day).swaps || {})[t];
     return '<span class="whotag' + (mine ? ' me' : '') + '">' + (mine && !isTeamLabel(n) ? 'You' : esc(txt)) + '</span>'
-      + (sw ? '<span class="swaptag">' + esc(sw.fromName) + '\'s turn · pay-back for ' + esc(fmtYmd(sw.origDate)) + '</span>' : ''); };
+      + (sw ? '<span class="swaptag">in for ' + esc(sw.fromName || 'someone') + (sw.kind === 'payback' && sw.origDate ? ' · pay-back for ' + esc(fmtYmd(sw.origDate)) : '') + '</span>' : '')
+      + (D.me.role === 'admin' && !isTeamLabel(n) && !s.notYet ? '<button class="btn btn-link btn-sm swapbtn" onclick="swapTask(\'' + day + '\',' + sched(day).tasks.indexOf(t) + ')">Change</button>' : ''); };
   let html = '<div class="cardhead"><div><h2>' + DAY_NAMES[day] + ' · ' + esc(fmtYmd(s.date)) + '</h2>'
     + '<div class="muted">' + (team.length ? 'Buddy team: <strong>' + esc(team.join(' + ')) + '</strong>' : 'No one assigned') + (D.rotateWeekly ? ' · ' + (sched(day).weekB ? 'Week B (jobs swapped)' : 'Week A') : '') + (closed ? ' · <span class="tag gray">Closed</span>' : '') + '</div></div>'
     + (s.total ? '<span class="tag ' + (s.done === s.total ? 'green' : s.past ? 'red' : 'blue') + '">' + s.done + ' of ' + s.total + ' done</span>' : '') + '</div>';
@@ -1849,6 +1857,19 @@ function renderCleaning(){
   updateTabBadge();
 }
 
+async function swapTask(day, idx){
+  const task = sched(day).tasks[idx]; if(task === undefined) return;
+  const date = D.weekDates[day];
+  const raw = (sched(day).rawWho || {})[task] || '', cur = whoOf(day, task), sw = (sched(day).swaps || {})[task];
+  const names = [...new Set((D.users || []).filter(u => u.role !== 'admin' || personUser(raw) === u).map(u => u.name).concat(dayPeople(day).map(personName)))].sort((a,b) => a.localeCompare(b));
+  const r = await ask({ title: 'Who is doing ' + task + ' on ' + DAY_NAMES[day] + '?',
+    message: 'Scheduled: ' + (raw ? personName(raw) : 'no one') + (sw ? '\nRight now: ' + personName(cur) + ' (in for ' + (sw.fromName || 'someone') + ')' : '')
+      + '\n\nThis changes ' + DAY_NAMES[day] + ' ' + fmtYmd(date) + ' only. The new person shows on the list and gets the reminder email. Team jobs (like Trash) still include everyone working that day.',
+    okText: 'Save', fields: [{ id:'to', label:'Person', type:'select', value: personName(cur), options: names.map(n => ({ value:n, label: n + (raw && n === personName(raw) ? ' (scheduled)' : '') })) }] });
+  if(!r) return;
+  const toName = r.to === personName(raw) ? '' : r.to;
+  applyClean(await act('cleanSwap', { date, task, toName }, toName ? toName + ' is now on ' + task + ' for ' + DAY_NAMES[day] + '.' : task + ' is back to the schedule.'));
+}
 function pickDay(day){ ui.day = day; renderCleaning(); }
 
 function applyClean(res){

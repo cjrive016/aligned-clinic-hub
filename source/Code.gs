@@ -186,6 +186,7 @@ var ACTIONS = {
 
   cleanDone:        { fn: a_cleanDone_, write: true },
   cleanUndo:        { fn: a_cleanUndo_, write: true },
+  cleanSwap:        { fn: a_cleanSwap_, write: true, admin: true },
   cleanMonth:       { fn: a_cleanMonth_ },
 
   itemSave:         { fn: a_itemSave_, write: true },
@@ -440,15 +441,43 @@ function sendMorning_(s, dayKey, date) {
 /** Distinct people on a day, in task order ("Dianne", "Jerry"). */
 function teamNames_(d) {
   var seen = {}, out = [];
-  (d.tasks || []).forEach(function (t) {
-    var n = str_((d.who || {})[t]);
-    if (!n || isTeamLabel_(n)) return;
+  dayPeople_(d).forEach(function (n) {
     var u = personUser_(n);
     var disp = u ? u.name : n;
     if (seen[disp.toLowerCase()]) return;
     seen[disp.toLowerCase()] = true; out.push(disp);
   });
   return out;
+}
+/** Everyone on cleaning that day: the people on the schedule, plus anyone swapped in to cover a task.
+ *  Someone whose task was given to another person still shares the Team jobs (like Trash). */
+function dayPeople_(d) {
+  var out = [], seen = {};
+  var add = function (x) { x = str_(x); if (!x || isTeamLabel_(x)) return; var u = personUser_(x); var k = (u ? u.username : x).toLowerCase(); if (seen[k]) return; seen[k] = 1; out.push(x); };
+  (d.tasks || []).forEach(function (t) { add((d.rawWho || {})[t]); });
+  (d.tasks || []).forEach(function (t) { add((d.who || {})[t]); });
+  return out;
+}
+
+/** Admin: put someone else on a task for one day (or put it back to the schedule). */
+function a_cleanSwap_(me, p) {
+  var s = settings_(), week = weekInfo_();
+  var date = String(p.date || ''), task = String(p.task || '');
+  var key = dayKeyOf_(date);
+  if (!key) throw userErr_('Pick a weekday.');
+  var dd = dayFor_(s, key, date, true);
+  if (dd.tasks.indexOf(task) < 0) throw userErr_('That task is not on the schedule that day.');
+  if (isTeamLabel_(dd.who[task])) throw userErr_('Team jobs are shared by everyone that day, so they cannot be swapped.');
+  rows_('Swaps').filter(function (w) { return w.date === date && w.task === task; }).forEach(function (w) { remove_('Swaps', w.id); });
+  var to = str_(p.toName);
+  if (to) {
+    var u = personUser_(to);
+    var toName = u ? u.name : to;
+    var orig = dd.who[task] || '';
+    if (orig && personUser_(orig) && u && personUser_(orig).username === u.username) return cleanState_(s, week);   // same person = back to schedule
+    insert_('Swaps', { id: uid_(), date: date, task: task, fromName: orig ? displayName_(orig) : '', toName: toName, coverId: 'manual', origDate: '', createdAt: nowIso_() });
+  }
+  return cleanState_(s, week);
 }
 
 function sendMissed_(s, dayKey, date) {
@@ -1358,15 +1387,16 @@ function dayFor_(s, dayKey, date, raw) {
     var names = ts.map(function (t) { return who[t]; });
     if (names.length > 1) ts.forEach(function (t, i) { who[t] = names[(i + 1) % names.length]; });
   }
-  var swaps = {};
+  var swaps = {}, rawWho = {};
+  Object.keys(who).forEach(function (k) { rawWho[k] = who[k]; });
   if (!raw) {
     rows_('Swaps').forEach(function (w) {
       if (w.date !== date || base.tasks.indexOf(w.task) < 0) return;
       who[w.task] = w.toName;
-      swaps[w.task] = { fromName: w.fromName, toName: w.toName, origDate: w.origDate };
+      swaps[w.task] = { fromName: w.fromName, toName: w.toName, origDate: w.origDate, kind: w.coverId === 'manual' ? 'manual' : 'payback' };
     });
   }
-  return { tasks: base.tasks.slice(), who: who, weekB: odd, swaps: swaps };
+  return { tasks: base.tasks.slice(), who: who, rawWho: rawWho, weekB: odd, swaps: swaps };
 }
 function addDaysYmd_(ymd, n) {
   var d = new Date(ymd + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
@@ -1427,9 +1457,7 @@ function assigneesOf_(d, task) {
   var n = str_((d.who || {})[task]);
   if (!n) return [];
   if (!isTeamLabel_(n)) return [n];
-  var out = [], seen = {};
-  (d.tasks || []).forEach(function (t) { var x = str_((d.who || {})[t]); if (x && !isTeamLabel_(x) && !seen[x.toLowerCase()]) { seen[x.toLowerCase()] = 1; out.push(x); } });
-  return out;
+  return dayPeople_(d);
 }
 function displayName_(label) { var u = personUser_(label); return u ? u.name : label; }
 function defaultSchedule_() {
