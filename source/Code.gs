@@ -215,6 +215,7 @@ var ACTIONS = {
   noteAddPeople:    { fn: a_noteAddPeople_, write: true },
   noteComment:      { fn: a_noteComment_, write: true },
   eventSave:        { fn: a_eventSave_, write: true },
+  calColor:         { fn: a_calColor_, write: true },
   eventDelete:      { fn: a_eventDelete_, write: true },
   notePurge:        { fn: a_notePurge_, write: true, admin: true },
   medDelete:        { fn: a_medDelete_, write: true, admin: true },
@@ -259,6 +260,7 @@ function a_bootstrap_(me) {
     qc: clean_(rows_('QC')),
     meds: clean_(rows_('Meds')),
     events: clean_(rows_('Events')),
+    calColors: calColors_(),
     pricing: pricing_(),
     notes: notesList_(me).notes,
     noteComments: notesList_(me).noteComments,
@@ -1073,6 +1075,20 @@ function a_noteSeen_(me, p) {
    ===================================================================== */
 var EVENT_KINDS = ['off', 'rep', 'meeting', 'other'];
 function eventsOut_() { return { events: clean_(rows_('Events')) }; }
+/* each person's calendar color (they can pick their own; admins can set anyone's) */
+var CAL_COLORS = ['ngreen', 'nblue', 'npink', 'norange', 'npurple', 'nyellow', 'nred', 'nlime', 'green', 'blue', 'pink', 'yellow'];
+function calColors_() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('cal_colors') || '{}') || {}; } catch (e) { return {}; }
+}
+function a_calColor_(me, p) {
+  var who = String(p.user || me.username).toLowerCase();
+  if (who !== me.username && me.role !== 'admin') throw userErr_('You can only change your own color.');
+  if (!findUser_(who)) throw userErr_('That account was not found.');
+  if (CAL_COLORS.indexOf(p.color) < 0) throw userErr_('Pick one of the colors.');
+  var map = calColors_(); map[who] = p.color;
+  PropertiesService.getScriptProperties().setProperty('cal_colors', JSON.stringify(map));
+  return { calColors: map };
+}
 function isYmd_(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')); }
 function a_eventSave_(me, p) {
   var kind = EVENT_KINDS.indexOf(p.kind) >= 0 ? p.kind : 'other';

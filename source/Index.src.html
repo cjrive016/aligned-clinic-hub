@@ -305,7 +305,11 @@
   .calhead .navbtn{ width:34px; height:34px; padding:0; font-size:18px; }
   .callegend{ display:flex; gap:12px; flex-wrap:wrap; font-size:12.5px; color:var(--ink-soft); margin-bottom:10px; }
   .callegend span{ display:inline-flex; align-items:center; gap:5px; }
-  .callegend i{ width:10px; height:10px; border-radius:3px; display:inline-block; }
+  .callegend i{ width:12px; height:12px; border-radius:3px; display:inline-block; border:1px solid rgba(0,0,0,.25); }
+  .callegend .me{ font-weight:800; color:var(--ink); }
+  .calmine{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:12.5px; color:var(--ink-soft); margin:-4px 0 10px; }
+  .calmine button{ width:20px; height:20px; border-radius:5px; border:2px solid transparent; cursor:pointer; padding:0; }
+  .calmine button.on{ border-color:var(--ink); }
   .calgrid{ display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); background:var(--line); gap:1px; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
   .caldow{ background:var(--paper); text-align:center; font-size:11.5px; font-weight:800; letter-spacing:.6px; color:var(--ink-soft); padding:7px 0; text-transform:uppercase; }
   .calday{ background:var(--surface); min-height:104px; padding:5px 5px 6px; display:flex; flex-direction:column; gap:3px; cursor:pointer; min-width:0; }
@@ -708,7 +712,8 @@
         <span style="flex:1"></span>
         <button class="btn btn-primary" onclick="calAdd()">+ Add to calendar</button>
       </div>
-      <div class="callegend"><span><i class="legend-off"></i>Day off</span><span><i class="legend-rep"></i>Drug rep lunch</span><span><i class="legend-meeting"></i>Meeting</span><span><i class="legend-other"></i>Other</span><span class="muted">· Tap a day to add something. You can only change or delete what you added.</span></div>
+      <div class="callegend" id="calLegend"></div>
+      <div class="calmine" id="calMine"></div>
       <div class="calgrid" id="calGrid"></div>
     </div>
     <div class="card agenda">
@@ -1365,8 +1370,25 @@ function calMove(n){
   renderCalendar();
 }
 const evEnd = e => e.endDate || e.date;
-const evLabel = e => e.kind === 'off' ? (e.byName + ' off' + (e.title ? ' — ' + e.title : ''))
-  : e.kind === 'rep' ? '🍽 ' + (e.title || 'Rep lunch') : e.title;
+const evLabel = e => (EV_ICON[e.kind] ? EV_ICON[e.kind] + ' ' : '') + (e.kind === 'off' ? (e.byName + ' off' + (e.title ? ' — ' + e.title : ''))
+  : e.kind === 'rep' ? (e.title || 'Rep lunch') : e.title);
+/* ---------- one color per person (Jacob = neon green by default) ---------- */
+const CAL_COLORS = ['ngreen','nblue','npink','norange','npurple','nyellow','nred','nlime','green','blue','pink','yellow'];
+const EV_ICON = { off:'🌴', rep:'🍽', meeting:'👥', other:'📌' };
+function personColors(){
+  const set = Object.assign({}, D.calColors || {});
+  if(!set.jacob) set.jacob = 'ngreen';
+  const used = new Set(Object.values(set));
+  const names = [...new Set((D.users || []).map(u => u.username).concat((D.events || []).map(e => e.byUser)))].filter(Boolean).sort();
+  const free = CAL_COLORS.filter(c => !used.has(c));
+  names.forEach(u => { if(!set[u]) set[u] = free.length ? free.shift() : CAL_COLORS[names.indexOf(u) % CAL_COLORS.length]; });
+  return set;
+}
+function evStyle(e){ const c = NOTE_COLORS[personColors()[e.byUser]] || '#E5E9EF'; return 'background:' + c + ';border-color:rgba(0,0,0,.35);color:#1a1a1a'; }
+async function setCalColor(color){
+  const res = await act('calColor', { color }, 'Your calendar color is saved.');
+  if(res){ D.calColors = res.calColors; renderCalendar(); }
+}
 const canEditEv = e => D.me.role === 'admin' || e.byUser === D.me.username;
 function evOn(ymd){
   return (D.events || []).filter(e => e.date <= ymd && evEnd(e) >= ymd)
@@ -1377,6 +1399,13 @@ function renderCalendar(){
   const [y, m] = calMonth().split('-').map(Number);
   const first = new Date(y, m - 1, 1, 12);
   $('calTitle').textContent = first.toLocaleDateString([], { month:'long', year:'numeric' });
+  // legend: everyone's color + pick your own
+  const pc = personColors(), me = D.me.username;
+  const people = (D.users || []).slice().sort((a,b) => a.username === me ? -1 : b.username === me ? 1 : a.name.localeCompare(b.name));
+  $('calLegend').innerHTML = people.map(u => '<span' + (u.username === me ? ' class="me"' : '') + '><i style="background:' + (NOTE_COLORS[pc[u.username]] || '#ddd') + '"></i>' + esc(u.username === me ? 'You' : u.name) + '</span>').join('')
+    + '<span class="muted">· 🌴 day off · 🍽 rep lunch · 👥 meeting · 📌 other</span>';
+  $('calMine').innerHTML = 'Your color: ' + CAL_COLORS.map(c => '<button type="button" title="' + (c[0] === 'n' ? 'Neon ' + c.slice(1) : c) + '" class="' + (pc[me] === c ? 'on' : '') + '" style="background:' + NOTE_COLORS[c] + '" onclick="setCalColor(\'' + c + '\')"></button>').join('')
+    + '<span class="muted">· Tap a day to add something. You can only change or delete what you added.</span>';
   const start = new Date(first); start.setDate(1 - first.getDay());
   const today = D.today || ymdOf(new Date());
   let html = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => '<div class="caldow">' + d + '</div>').join('');
@@ -1386,7 +1415,7 @@ function renderCalendar(){
     const ymd = ymdOf(d), other = d.getMonth() !== m - 1, wk = d.getDay() === 0 || d.getDay() === 6;
     html += '<div class="calday' + (other ? ' other' : '') + (wk ? ' weekend' : '') + (ymd === today ? ' today' : '') + '" onclick="calAdd(\'' + ymd + '\')">'
       + '<span class="dn">' + d.getDate() + '</span>'
-      + evOn(ymd).map(e => '<div class="evchip ev-' + esc(e.kind) + '" title="' + esc(evLabel(e) + (e.time ? ' · ' + e.time : '')) + '" onclick="event.stopPropagation(); calOpen(\'' + esc(e.id) + '\')">' + esc((e.time && e.kind !== 'off' ? e.time + ' ' : '') + evLabel(e)) + '</div>').join('')
+      + evOn(ymd).map(e => '<div class="evchip" style="' + evStyle(e) + '" title="' + esc(evLabel(e) + (e.time ? ' · ' + e.time : '')) + '" onclick="event.stopPropagation(); calOpen(\'' + esc(e.id) + '\')">' + esc((e.time && e.kind !== 'off' ? e.time + ' ' : '') + evLabel(e)) + '</div>').join('')
       + '</div>';
   }
   $('calGrid').innerHTML = html;
@@ -1396,7 +1425,7 @@ function renderCalendar(){
   $('agTitle').textContent = 'In ' + first.toLocaleDateString([], { month:'long' });
   $('calAgenda').innerHTML = list.length ? list.map(e => '<div class="agrow">'
       + '<div class="agd">' + esc(fmtYmd(e.date)) + (e.endDate ? '<small>through ' + esc(fmtYmd(e.endDate)) + '</small>' : '') + (e.time ? '<small>' + esc(e.time) + '</small>' : '') + '</div>'
-      + '<div class="agt"><span class="evchip ev-' + esc(e.kind) + '">' + esc(evLabel(e)) + '</span>'
+      + '<div class="agt"><span class="evchip" style="' + evStyle(e) + '">' + esc(evLabel(e)) + '</span>'
       + '<div class="agm">' + (e.notes ? esc(e.notes) + '\n' : '') + 'Added by ' + esc(e.byUser === D.me.username ? 'you' : e.byName) + '</div></div>'
       + '<div class="aga">' + (canEditEv(e) ? '<button class="btn btn-white btn-sm" onclick="calEdit(\'' + esc(e.id) + '\')">Edit</button><button class="btn btn-white btn-sm" onclick="calDelete(\'' + esc(e.id) + '\')">Delete</button>' : '') + '</div>'
       + '</div>').join('')
