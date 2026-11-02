@@ -70,14 +70,14 @@ var TABLES = {
   Pricing:  ['id', 'grp', 'sort', 'code', 'dose', 'doseMg', 'volMl', 'units', 'price', 'vial', 'updatedBy', 'updatedAt'],
   Meds:     ['id', 'name', 'ndc', 'ndc11', 'lot', 'expiration', 'qty', 'location', 'notes', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'],
   Swaps:    ['id', 'date', 'task', 'fromName', 'toName', 'coverId', 'origDate', 'createdAt'],
-  Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls', 'deleted', 'deletedAt', 'deletedBy', 'editedAt', 'authorFlag'],
+  Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls', 'deleted', 'deletedAt', 'deletedBy', 'editedAt', 'authorFlag', 'urgent', 'ackAt', 'remindedAt'],
   NoteComments: ['id', 'noteKey', 'text', 'byUser', 'byName', 'at', 'kind'],
   Events:   ['id', 'date', 'endDate', 'kind', 'title', 'time', 'notes', 'byUser', 'byName', 'createdAt', 'updatedAt'],
   QC:       ['id', 'loggedAt', 'test', 'lot', 'expiration', 'reason', 'posControl', 'negControl', 'result', 'byName', 'by', 'notes', 'voided', 'voidReason', 'voidedBy']
 };
 var KEYS = { Users: 'username' };
 var NUM_FIELDS = { qty: 1, price: 1, reorderAt: 1 };
-var BOOL_FIELDS = { paid: 1, active: 1, offAssignment: 1, late: 1, voided: 1, done: 1, deleted: 1, authorFlag: 1 };
+var BOOL_FIELDS = { paid: 1, active: 1, offAssignment: 1, late: 1, voided: 1, done: 1, deleted: 1, authorFlag: 1, urgent: 1 };
 var DATE_ONLY = { date: 1, expiration: 1 };
 
 /* =====================================================================
@@ -148,6 +148,7 @@ function api(token, action, payload) {
 /** Runs every 30 minutes once "automatic emails" is turned on in Admin. */
 function hourlyTick() {
   var s = settings_();
+  try { urgentReminders_(); } catch (e) { console.warn('Urgent reminder failed: ' + e); }   // every day, any time
   var now = new Date();
   var tz = tz_();
   var dow = Number(Utilities.formatDate(now, tz, 'u')); // 1 = Monday … 7 = Sunday
@@ -211,6 +212,7 @@ var ACTIONS = {
   noteDone:         { fn: a_noteDone_, write: true },
   noteDelete:       { fn: a_noteDelete_, write: true },
   noteSeen:         { fn: a_noteSeen_, write: true },
+  noteAck:          { fn: a_noteAck_, write: true },
   noteEdit:         { fn: a_noteEdit_, write: true },
   noteAddPeople:    { fn: a_noteAddPeople_, write: true },
   noteComment:      { fn: a_noteComment_, write: true },
@@ -946,7 +948,7 @@ function a_noteAddPeople_(me, p) {
   add.forEach(function (u) {
     insert_('Notes', { id: uid_(), wall: u.username, text: n.text, color: n.color, fromUser: n.fromUser, fromName: n.fromName,
       createdAt: n.createdAt, seenAt: '', done: false, doneAt: '', doneBy: '', groupId: gid, walls: walls.join(','),
-      deleted: false, deletedAt: '', deletedBy: '', editedAt: n.editedAt || '' });
+      deleted: false, deletedAt: '', deletedBy: '', editedAt: n.editedAt || '', urgent: !!n.urgent, ackAt: '', remindedAt: '' });
     if (u.email) {
       try {
         sendMail_(u.email, me.name + ' added you to a sticky note',
@@ -969,18 +971,20 @@ function a_noteAdd_(me, p) {
   });
   if (!owners.length) throw userErr_('Pick at least one wall to post it on.');
   var color = NOTE_COLORS.indexOf(p.color) >= 0 ? p.color : 'yellow';
+  var urgent = !!p.urgent;
   var groupId = owners.length > 1 ? uid_() : '';
   var wallList = owners.map(function (u) { return u.username; }).join(',');
   var now = nowIso_();
   owners.forEach(function (owner) {
     insert_('Notes', { id: uid_(), wall: owner.username, text: text, color: color, fromUser: me.username, fromName: me.name,
       createdAt: now, seenAt: owner.username === me.username ? now : '', done: false, doneAt: '', doneBy: '',
-      groupId: groupId, walls: groupId ? wallList : '', deleted: false, deletedAt: '', deletedBy: '', editedAt: '', authorFlag: false });
+      groupId: groupId, walls: groupId ? wallList : '', deleted: false, deletedAt: '', deletedBy: '', editedAt: '', authorFlag: false,
+      urgent: urgent, ackAt: (urgent && owner.username === me.username) ? now : '', remindedAt: '' });
     if (owner.username !== me.username && owner.email) {
       var others = owners.filter(function (o) { return o.username !== owner.username; }).map(function (o) { return o.name; });
       try {
-        sendMail_(owner.email, 'New sticky note from ' + me.name,
-          'Hi ' + owner.name + ',\n\n' + me.name + ' left a sticky note on your wall in the Clinic Hub' +
+        sendMail_(owner.email, (urgent ? '🚨 URGENT sticky note from ' : 'New sticky note from ') + me.name,
+          'Hi ' + owner.name + ',\n\n' + (urgent ? 'THIS IS MARKED URGENT. Please look at it as soon as you can.\n\n' : '') + me.name + ' left a sticky note on your wall in the Clinic Hub' +
           (others.length ? ' (also posted to ' + others.join(', ') + ')' : '') + ':\n\n"' + text + '"\n\n' +
           'Open the Sticky Notes tab to see it, comment on it, or mark it done.');
       } catch (e) { console.warn('Note email failed: ' + e); }
@@ -1058,6 +1062,35 @@ function a_notePurge_(me, p) {
   }
   return noteOut_(me);
 }
+/** "Got it" on an urgent note: stops the popup and the reminder email. */
+function a_noteAck_(me, p) {
+  var now = nowIso_();
+  var ids = Array.isArray(p.ids) ? p.ids : [];
+  rows_('Notes').forEach(function (n) {
+    if (n.wall === me.username && n.urgent && !n.ackAt && (!ids.length || ids.indexOf(n.id) >= 0)) update_('Notes', n.id, { ackAt: now, seenAt: n.seenAt || now });
+  });
+  return noteOut_(me);
+}
+/** 30+ minutes and still no "Got it" on an urgent note → one reminder email to them, and a heads-up to the writer. */
+function urgentReminders_() {
+  var cutoff = new Date(Date.now() - 30 * 60000).toISOString();
+  rows_('Notes').forEach(function (n) {
+    if (!n.urgent || n.ackAt || n.remindedAt || n.done || n.deleted || String(n.createdAt) > cutoff) return;
+    update_('Notes', n.id, { remindedAt: nowIso_() });
+    var u = findUser_(n.wall), from = findUser_(n.fromUser);
+    if (u && u.active && u.email) {
+      try { sendMail_(u.email, '🚨 REMINDER: urgent sticky note from ' + n.fromName,
+        'Hi ' + u.name + ',\n\n' + n.fromName + ' left you an URGENT sticky note and it has not been looked at yet:\n\n"' + n.text + '"\n\n' +
+        'Please open the Sticky Notes tab in the Clinic Hub and press "Got it".'); } catch (e) { console.warn(e); }
+    }
+    if (from && from.email && from.username !== n.wall) {
+      try { sendMail_(from.email, 'Heads up: ' + (u ? u.name : n.wall) + ' has not seen your urgent note yet',
+        'Hi ' + from.name + ',\n\n' + (u ? u.name : n.wall) + ' has not opened your urgent sticky note yet (sent ' + n.createdAt.slice(11, 16) + ' UTC):\n\n"' + n.text + '"\n\n' +
+        'They were sent a reminder. You may want to find them in person.'); } catch (e) { console.warn(e); }
+    }
+  });
+}
+
 function a_noteSeen_(me, p) {
   var now = nowIso_();
   if (p && p.view === 'sent') {
