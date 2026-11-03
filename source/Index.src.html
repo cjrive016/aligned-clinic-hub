@@ -81,7 +81,7 @@
   .sticky.isdel{ opacity:.7; transform:none; filter:grayscale(.5); }
   .sticky.isdel .ntext{ text-decoration:line-through; }
   .sticky .wst{ font-size:11px; font-weight:700; padding:0 5px; border-radius:6px; background:rgba(255,255,255,.7); white-space:nowrap; }
-  .sticky .wst.seen{ color:#1F5E93; } .sticky .wst.unseen{ color:#8A5A12; }
+  .sticky .wst.seen{ color:#fff; background:#1E7BD8; } .sticky .wst.unseen{ color:#8A5A12; }
   .sticky .wst.ok{ color:var(--good); } .sticky .wst.del{ color:var(--flag); }
   .scopebtns{ display:flex; flex-direction:column; gap:8px; margin-top:6px; }
   .sticky .nadd{ font-size:14px; color:#2a2a2a; border-left:3px solid rgba(0,0,0,.25); padding-left:7px; white-space:pre-wrap; word-break:break-word; }
@@ -1266,9 +1266,9 @@ function renderNotes(){
       + '<div class="ntext">' + esc(n.text) + '</div>'
       + adds.map(c => '<div class="nadd">+ ' + esc(c.text) + '<small>added ' + esc(fmtDateTime(c.at)) + '</small></div>').join('')
       + '<div class="nmeta">From <strong>' + esc(n.fromUser === me ? 'You' : n.fromName) + '</strong> → ' + noteWalls(n).map(w => { const c = copyOn(n, w);
-          return esc(nameOf(w)) + (c && c.done ? ' <span class="wst ok" title="Done">✓ done</span>' : c && c.deleted ? ' <span class="wst del" title="Took it off their wall">removed</span>'
-            : w === n.fromUser ? '' : c && c.seenAt ? ' <span class="wst seen" title="Seen ' + esc(fmtDateTime(c.seenAt)) + '">👀 seen ' + esc(seenWhen(c.seenAt)) + '</span>'
-            : c && c.firstSeenAt ? ' <span class="wst seen" title="Saw the note ' + esc(fmtDateTime(c.firstSeenAt)) + ', has not looked since the latest comment">👀 seen · new reply unread</span>'
+          return esc(nameOf(w)) + (c && c.done ? ' <span class="wst ok" title="Done">✔ Done</span>' : c && c.deleted ? ' <span class="wst del" title="Took it off their wall">removed</span>'
+            : w === n.fromUser ? '' : c && c.seenAt ? ' <span class="wst seen" title="Seen ' + esc(fmtDateTime(c.seenAt)) + '">✓ Seen ' + esc(seenWhen(c.seenAt)) + '</span>'
+            : c && c.firstSeenAt ? ' <span class="wst seen" title="Saw the note ' + esc(fmtDateTime(c.firstSeenAt)) + ', has not looked since the latest comment">✓ Seen · new reply unread</span>'
             : ' <span class="wst unseen" title="Has not opened it yet">not seen yet</span>'); }).join(', ') + '<br>' + esc(fmtDateTime(n.createdAt)) + '</div>'
       + '<div class="nact"><button onclick="openChat(\'' + id + '\')">💬 Comments' + (cs.length ? ' (' + cs.length + ')' : '') + '</button>' + acts + '</div>'
       + '</div>';
