@@ -70,7 +70,7 @@ var TABLES = {
   Pricing:  ['id', 'grp', 'sort', 'code', 'dose', 'doseMg', 'volMl', 'units', 'price', 'vial', 'updatedBy', 'updatedAt'],
   Meds:     ['id', 'name', 'ndc', 'ndc11', 'lot', 'expiration', 'qty', 'location', 'notes', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'],
   Swaps:    ['id', 'date', 'task', 'fromName', 'toName', 'coverId', 'origDate', 'createdAt'],
-  Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls', 'deleted', 'deletedAt', 'deletedBy', 'editedAt', 'authorFlag', 'urgent', 'ackAt', 'remindedAt'],
+  Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls', 'deleted', 'deletedAt', 'deletedBy', 'editedAt', 'authorFlag', 'urgent', 'ackAt', 'remindedAt', 'firstSeenAt'],
   NoteComments: ['id', 'noteKey', 'text', 'byUser', 'byName', 'at', 'kind'],
   Events:   ['id', 'date', 'endDate', 'kind', 'title', 'time', 'notes', 'byUser', 'byName', 'createdAt', 'updatedAt'],
   QC:       ['id', 'loggedAt', 'test', 'lot', 'expiration', 'reason', 'posControl', 'negControl', 'result', 'byName', 'by', 'notes', 'voided', 'voidReason', 'voidedBy']
@@ -1002,7 +1002,7 @@ function a_noteEdit_(me, p) {
   var now = nowIso_();
   insert_('NoteComments', { id: uid_(), noteKey: noteKey_(n), text: text, byUser: me.username, byName: me.name, at: now, kind: 'addition' });
   noteGroup_(n).forEach(function (x) {
-    update_('Notes', x.id, { editedAt: now, seenAt: x.wall === me.username ? x.seenAt : '' });
+    update_('Notes', x.id, { editedAt: now, seenAt: x.wall === me.username ? x.seenAt : '', firstSeenAt: x.firstSeenAt || x.seenAt || '' });
   });
   noteNotify_(me, n, me.name + ' added to a sticky note',
     me.name + ' added to their sticky note.\n\nOriginal: "' + n.text + '"\n\nAdded: "' + text + '"');
@@ -1016,7 +1016,7 @@ function a_noteComment_(me, p) {
   if (!text) throw userErr_('Write a comment first.');
   insert_('NoteComments', { id: uid_(), noteKey: noteKey_(n), text: text, byUser: me.username, byName: me.name, at: nowIso_(), kind: 'comment' });
   // flag it as new again for the other walls
-  noteGroup_(n).forEach(function (x) { if (x.wall !== me.username) update_('Notes', x.id, { seenAt: '' }); });
+  noteGroup_(n).forEach(function (x) { if (x.wall !== me.username) update_('Notes', x.id, { seenAt: '', firstSeenAt: x.firstSeenAt || x.seenAt || '' }); });
   // and for the person who wrote the note (when it isn't on their own wall)
   var group = noteGroup_(n);
   var authorOnWall = group.some(function (x) { return x.wall === n.fromUser; });
@@ -1067,7 +1067,7 @@ function a_noteAck_(me, p) {
   var now = nowIso_();
   var ids = Array.isArray(p.ids) ? p.ids : [];
   rows_('Notes').forEach(function (n) {
-    if (n.wall === me.username && n.urgent && !n.ackAt && (!ids.length || ids.indexOf(n.id) >= 0)) update_('Notes', n.id, { ackAt: now, seenAt: n.seenAt || now });
+    if (n.wall === me.username && n.urgent && !n.ackAt && (!ids.length || ids.indexOf(n.id) >= 0)) update_('Notes', n.id, { ackAt: now, seenAt: n.seenAt || now, firstSeenAt: n.firstSeenAt || now });
   });
   return noteOut_(me);
 }
@@ -1097,7 +1097,7 @@ function a_noteSeen_(me, p) {
     rows_('Notes').forEach(function (n) { if (n.fromUser === me.username && n.authorFlag) update_('Notes', n.id, { authorFlag: false }); });
     return noteOut_(me);
   }
-  rows_('Notes').forEach(function (n) { if (n.wall === me.username && !n.seenAt) update_('Notes', n.id, { seenAt: now }); });
+  rows_('Notes').forEach(function (n) { if (n.wall === me.username && !n.seenAt) update_('Notes', n.id, { seenAt: now, firstSeenAt: n.firstSeenAt || now }); });
   return noteOut_(me);
 }
 
