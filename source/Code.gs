@@ -66,7 +66,6 @@ var TABLES = {
   Items:    ['id', 'name', 'category', 'owner', 'qty', 'price', 'reorderAt', 'notes', 'paid', 'paidDate', 'createdAt'],
   Orders:   ['id', 'itemId', 'name', 'qty', 'price', 'assignTo', 'by', 'note', 'status', 'requestedAt', 'orderedAt', 'receivedAt', 'supplier'],
   Quotes:   ['id', 'item', 'supplier', 'price', 'packQty', 'notes', 'updatedBy', 'updatedAt', 'byUser'],
-  Receipts: ['id', 'month', 'supplier', 'amount', 'forWho', 'note', 'fileId', 'fileName', 'fileType', 'fileSize', 'by', 'at'],
   Cleaning: ['id', 'date', 'day', 'task', 'assigned', 'assignedName', 'doneBy', 'doneByName', 'doneAt', 'offAssignment', 'late', 'comment', 'kind'],
   Pricing:  ['id', 'grp', 'sort', 'code', 'dose', 'doseMg', 'volMl', 'units', 'price', 'vial', 'updatedBy', 'updatedAt'],
   Meds:     ['id', 'name', 'ndc', 'ndc11', 'lot', 'expiration', 'qty', 'location', 'notes', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'],
@@ -201,8 +200,6 @@ var ACTIONS = {
   orderOrdered:     { fn: a_orderOrdered_, write: true, admin: true },
   quoteSave:        { fn: a_quoteSave_, write: true },
   quoteDelete:      { fn: a_quoteDelete_, write: true },
-  receiptSave:      { fn: a_receiptSave_, write: true, admin: true },
-  receiptDelete:    { fn: a_receiptDelete_, write: true, admin: true },
   orderReceived:    { fn: a_orderReceived_, write: true },
   orderRemove:      { fn: a_orderRemove_, write: true, admin: true },
 
@@ -262,7 +259,6 @@ function a_bootstrap_(me) {
     items: clean_(rows_('Items')),
     orders: clean_(rows_('Orders')),
     quotes: clean_(rows_('Quotes')),
-    receipts: clean_(rows_('Receipts')),
     qc: clean_(rows_('QC')),
     meds: clean_(rows_('Meds')),
     events: clean_(rows_('Events')),
@@ -545,32 +541,6 @@ function a_quoteSave_(me, p) {
 }
 /** Admins can change any price; staff can change prices they added. */
 function quoteCanEdit_(me, q) { return me.role === 'admin' || (!!q.byUser && q.byUser === me.username); }
-/* ---------- receipts attached to a month (the file itself is stored separately by the worker) ---------- */
-function receiptsOut_() { return { receipts: clean_(rows_('Receipts')) }; }
-function a_receiptSave_(me, p) {
-  var month = String(p.month || '');
-  if (!/^\d{4}-\d{2}$/.test(month)) throw userErr_('Pick which month this receipt is for.');
-  var supplier = str_(p.supplier).slice(0, 80);
-  if (!supplier) throw userErr_('Where is this receipt from? (e.g. Tate Medical)');
-  var who = (Array.isArray(p.forWho) ? p.forWho : []).filter(function (w) { return CONFIG.PEOPLE.indexOf(w) >= 0 || w === 'Split'; });
-  var amt = String(p.amount == null ? '' : p.amount).replace(/[$,\s]/g, '');
-  if (amt && !/^\d+(\.\d{1,2})?$/.test(amt)) throw userErr_('Total should be a number, like 245.80.');
-  var data = { month: month, supplier: supplier, amount: amt, forWho: who.join(','), note: str_(p.note).slice(0, 2000) };
-  var rec = p.id ? find_('Receipts', p.id) : null;
-  if (rec) { update_('Receipts', rec.id, data); return receiptsOut_(); }
-  if (!/^[a-f0-9]{16,64}$/.test(String(p.fileId || ''))) throw userErr_('Attach the receipt file first.');
-  data.id = uid_(); data.fileId = p.fileId; data.fileName = str_(p.fileName).slice(0, 120) || 'receipt';
-  data.fileType = str_(p.fileType).slice(0, 60); data.fileSize = String(parseInt(p.fileSize, 10) || 0);
-  data.by = me.name; data.at = nowIso_();
-  insert_('Receipts', data);
-  return receiptsOut_();
-}
-function a_receiptDelete_(me, p) {
-  var r = find_('Receipts', p.id);
-  if (r) remove_('Receipts', r.id);
-  return receiptsOut_();
-}
-
 function a_quoteDelete_(me, p) {
   var q = find_('Quotes', p.id);
   if (q) {

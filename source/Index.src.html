@@ -268,13 +268,6 @@
   .pqonly input{ margin:0; width:auto; }
   .pqtable{ min-width:560px; } .pqtable td.num, .pqtable th.num{ text-align:right; } .pqtable td.act{ text-align:right; white-space:nowrap; }
   .pqbest{ font-weight:800; color:var(--good); }
-  .rcard{ border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; background:var(--surface); }
-  .rtop{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; }
-  .rsup{ font-weight:800; font-size:15.5px; } .ramt{ color:var(--good); margin-left:6px; }
-  .rmeta{ font-size:12.5px; color:var(--ink-soft); margin-top:3px; }
-  .racts{ display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
-  .rnote{ white-space:pre-wrap; word-break:break-word; font-size:14px; margin-top:8px; background:var(--brand-soft); border-radius:8px; padding:8px 10px; }
-  .rfile{ font-size:12px; color:var(--ink-soft); margin-top:6px; }
   .plcard{ background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:12px 14px; margin-bottom:12px; }
   .plhead{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
   .plhead h3{ margin:0; font-size:16px; } .plhead .btn{ margin-left:auto; }
@@ -617,12 +610,6 @@
         <p class="muted">Every order is saved here by the month it was marked <strong>Ordered</strong>. Pick any past month to look back.</p>
         <div class="moneygrid" id="monthMoney"></div>
         <div id="monthSummary" class="muted" style="margin-top:12px"></div>
-      </div>
-      <div class="card">
-        <div class="cardhead"><div><h2 id="rcTitle" style="margin:0">Receipts</h2><span class="muted" id="rcSub"></span></div>
-          <button class="btn btn-primary btn-sm hidden" id="rcAddBtn" onclick="addReceipt()">+ Attach receipt</button></div>
-        <p class="muted" style="margin-top:0">The receipts for this month, with notes on what went to whom, so anyone can see what was ordered.</p>
-        <div id="rcList"></div>
       </div>
       <div class="tablewrap">
         <table>
@@ -1788,115 +1775,6 @@ async function addPriceForNew(){
 }
 document.addEventListener('keydown', e => { if(e.key === 'Escape' && ui.pqItem && $('pqBody')) closePrices(); });
 
-/* =========================================================
-   RECEIPTS — attached to a month, with what went where
-   ========================================================= */
-const RC_WHO = ['Clinic', 'Sarah', 'Erica', 'Split'];
-function newFileId(){ const a = new Uint8Array(16); crypto.getRandomValues(a); return [...a].map(b => b.toString(16).padStart(2, '0')).join(''); }
-function fileToDataUrl(f){ return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(new Error('Could not read the file.')); r.readAsDataURL(f); }); }
-/** shrink phone photos so receipts upload fast but stay readable */
-async function shrinkImage(f){
-  const url = await fileToDataUrl(f);
-  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('That picture could not be opened.')); i.src = url; });
-  const max = 2200, sc = Math.min(1, max / Math.max(img.width, img.height));
-  const c = document.createElement('canvas'); c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
-  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-  return { data: c.toDataURL('image/jpeg', 0.85), type: 'image/jpeg' };
-}
-function renderReceipts(key){
-  if(!$('rcList')) return;
-  const admin = isAdmin();
-  $('rcAddBtn').classList.toggle('hidden', !admin);
-  $('rcTitle').textContent = 'Receipts — ' + monthLabel(key);
-  const list = (D.receipts || []).filter(r => r.month === key).sort((a,b) => a.at < b.at ? 1 : -1);
-  const total = list.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-  $('rcSub').textContent = list.length ? list.length + ' receipt' + (list.length === 1 ? '' : 's') + (total ? ' · ' + money(total) + ' total' : '') : '';
-  $('rcList').innerHTML = list.length ? list.map(r => {
-      const who = String(r.forWho || '').split(',').filter(Boolean);
-      return '<div class="rcard"><div class="rtop"><div><div class="rsup">' + esc(r.supplier) + (r.amount ? ' <span class="ramt">' + esc(money(Number(r.amount))) + '</span>' : '') + '</div>'
-        + '<div class="rmeta">' + (who.length ? 'For ' + who.map(whoChip).join(' ') + ' · ' : '') + 'Added ' + esc(fmtDate(r.at)) + (r.by ? ' by ' + esc(r.by) : '') + '</div></div>'
-        + '<div class="racts"><button class="btn btn-primary btn-sm" onclick="viewReceipt(\'' + esc(r.id) + '\')">📄 View receipt</button>'
-        + (admin ? '<button class="btn btn-link btn-sm" onclick="editReceipt(\'' + esc(r.id) + '\')">Edit</button><button class="btn btn-link btn-sm" style="color:var(--flag)" onclick="deleteReceipt(\'' + esc(r.id) + '\')">Delete</button>' : '') + '</div></div>'
-        + (r.note ? '<div class="rnote">' + esc(r.note) + '</div>' : '')
-        + '<div class="rfile">' + esc(r.fileName || 'receipt') + (Number(r.fileSize) ? ' · ' + (Number(r.fileSize) >= 1048576 ? (Number(r.fileSize) / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(Number(r.fileSize) / 1024)) + ' KB') : '') + '</div></div>';
-    }).join('')
-    : '<div class="emptymsg">No receipts attached for ' + esc(monthLabel(key)) + ' yet.' + (admin ? ' Click "+ Attach receipt" to add one.' : '') + '</div>';
-}
-async function fileCall(path, body){
-  const r = await fetch(path, { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify(Object.assign({ t: TOKEN }, body)) });
-  if(r.status === 401){ toast('Please sign in again.', true); throw new Error('auth'); }
-  return r;
-}
-function receiptForm(r){
-  const who = r ? String(r.forWho || '').split(',') : [];
-  const key = r ? r.month : ($('monthPick').value || thisMonth());
-  return '<div class="formgrid">'
-    + (r ? '' : '<div class="full"><label for="rc-file">Receipt (photo or PDF)</label><input id="rc-file" type="file" accept="image/*,application/pdf"></div>')
-    + '<div class="span2"><label for="rc-sup">Where from</label><input id="rc-sup" list="rcSupList" value="' + esc(r ? r.supplier : '') + '" placeholder="e.g. Tate Medical"><datalist id="rcSupList">'
-      + [...new Set((D.receipts || []).map(x => x.supplier).concat(supplierNames()))].map(n => '<option value="' + esc(n) + '">').join('') + '</datalist></div>'
-    + '<div><label for="rc-month">Month</label><input id="rc-month" type="month" value="' + esc(key) + '"></div>'
-    + '<div><label for="rc-amt">Total ($, optional)</label><input id="rc-amt" inputmode="decimal" value="' + esc(r ? r.amount : '') + '" placeholder="245.80"></div>'
-    + '<div class="full"><label>Who it\'s for</label><div class="wallpick" id="rc-who">' + RC_WHO.map(w => '<label class="' + (who.includes(w) ? 'on' : '') + '"><input type="checkbox" value="' + w + '"' + (who.includes(w) ? ' checked' : '') + ' onchange="this.parentNode.classList.toggle(\'on\', this.checked)">' + w + '</label>').join('') + '</div></div>'
-    + '<div class="full"><label for="rc-note">What went where</label><textarea id="rc-note" rows="4" placeholder="e.g. Gloves + table paper = Clinic. Botox syringes ($84) = Erica. Sharps containers split.">' + esc(r ? r.note : '') + '</textarea></div>'
-    + '</div>';
-}
-function openReceiptModal(r){
-  modalOpen = true;
-  $('modalRoot').innerHTML = '<div class="modal-bg"><div class="modal" role="dialog" aria-modal="true" style="max-width:560px">'
-    + '<h3>' + (r ? 'Edit receipt' : 'Attach a receipt') + '</h3>' + receiptForm(r)
-    + '<div class="acts"><button class="btn btn-white" id="rcCancel">Cancel</button><button class="btn btn-primary" id="rcSave">' + (r ? 'Save' : 'Upload') + '</button></div></div></div>';
-  const close = () => { $('modalRoot').innerHTML = ''; modalOpen = false; };
-  $('rcCancel').onclick = close;
-  $('rcSave').onclick = async () => {
-    const meta = { month: $('rc-month').value, supplier: $('rc-sup').value.trim(), amount: $('rc-amt').value.trim(), note: $('rc-note').value.trim(),
-                   forWho: [...document.querySelectorAll('#rc-who input:checked')].map(i => i.value) };
-    if(!meta.supplier){ toast('Where is this receipt from?', true); $('rc-sup').focus(); return; }
-    if(!meta.month){ toast('Pick the month.', true); return; }
-    const btn = $('rcSave'); btn.disabled = true;
-    try {
-      if(r){
-        const res = await act('receiptSave', Object.assign({ id: r.id }, meta), 'Receipt updated.');
-        if(res){ D.receipts = res.receipts; close(); renderMonthly(); }
-        return;
-      }
-      const f = $('rc-file').files[0];
-      if(!f){ toast('Choose the receipt file.', true); return; }
-      btn.textContent = 'Uploading…';
-      let data, type = f.type || 'application/octet-stream';
-      if(/^image\//.test(type) && !/gif/.test(type)){ try { const s = await shrinkImage(f); data = s.data; type = s.type; } catch(e){ data = await fileToDataUrl(f); } }
-      else data = await fileToDataUrl(f);
-      const size = Math.round((data.length - data.indexOf(',') - 1) * 0.75);
-      if(size > 10 * 1024 * 1024){ toast('That file is too big (10 MB max).', true); return; }
-      const fileId = newFileId();
-      const up = await fileCall('/file/put', { fileId, type, data });
-      const uj = await up.json().catch(() => ({}));
-      if(!up.ok || !uj.ok){ toast(uj.message || 'Upload failed. Please try again.', true); return; }
-      const res = await act('receiptSave', Object.assign({ fileId, fileName: f.name, fileType: type, fileSize: size }, meta), 'Receipt attached.');
-      if(res){ D.receipts = res.receipts; close(); $('monthPick').value = meta.month; renderMonthly(); }
-    } catch(e){ if(e.message !== 'auth') toast('Upload failed: ' + e.message, true); }
-    finally { if($('rcSave')){ btn.disabled = false; btn.textContent = r ? 'Save' : 'Upload'; } }
-  };
-}
-function addReceipt(){ openReceiptModal(null); }
-function editReceipt(id){ const r = (D.receipts || []).find(x => x.id === id); if(r) openReceiptModal(r); }
-async function viewReceipt(id){
-  const r = (D.receipts || []).find(x => x.id === id); if(!r) return;
-  const w = window.open('', '_blank');   // open now so pop-up blockers allow it
-  if(w) w.document.write('<p style="font-family:sans-serif;padding:20px">Loading receipt…</p>');
-  try {
-    const res = await fileCall('/file/get', { fileId: r.fileId });
-    if(!res.ok){ const j = await res.json().catch(() => ({})); throw new Error(j.message || 'Could not open the receipt.'); }
-    const url = URL.createObjectURL(await res.blob());
-    if(w) w.location.href = url; else window.location.href = url;
-  } catch(e){ if(w) w.close(); if(e.message !== 'auth') toast(e.message, true); }
-}
-async function deleteReceipt(id){
-  const r = (D.receipts || []).find(x => x.id === id); if(!r) return;
-  if(!await confirmBox('Delete this receipt?', r.supplier + ' (' + monthLabel(r.month) + ')' + (r.amount ? ' — ' + money(Number(r.amount)) : '') + '. The file is removed for everyone.', 'Delete', true)) return;
-  const res = await act('receiptDelete', { id }, 'Receipt deleted.');
-  if(res){ D.receipts = res.receipts; renderMonthly(); fileCall('/file/del', { fileId: r.fileId }).catch(() => {}); }
-}
-
 function showTab(name, silent){
   ui.tab = name; savePref('tab', name);
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
@@ -2469,7 +2347,6 @@ function renderMonthly(){
   const collected = D.items.filter(i => i.owner !== D.house && i.paid && monthKey(i.paidDate) === key).reduce((s,i) => s + i.qty*i.price, 0);
   const owed = D.items.filter(i => i.owner !== D.house && !i.paid).reduce((s,i) => s + i.qty*i.price, 0);
   const bottom = collected - clinic;
-  renderReceipts(key);
   $('monthMoney').innerHTML =
       '<div class="moneycard"><div class="lbl">Spent on orders</div><div class="amt">'+money(spent)+'</div><div class="hint">'+rows.length+' ordered</div></div>'
     + '<div class="moneycard"><div class="lbl">Clinic expense</div><div class="amt">'+money(clinic)+'</div><div class="hint">Assigned to Clinic</div></div>'
