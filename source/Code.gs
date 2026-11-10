@@ -262,6 +262,7 @@ function a_bootstrap_(me) {
     qc: clean_(rows_('QC')),
     meds: clean_(rows_('Meds')),
     events: clean_(rows_('Events')),
+    calLog: calLog_().items,
     calColors: calColors_(),
     pricing: pricing_(),
     notes: notesList_(me).notes,
@@ -1107,7 +1108,22 @@ function a_noteSeen_(me, p) {
    - Only the person who added an entry (or an admin) can change or delete it.
    ===================================================================== */
 var EVENT_KINDS = ['off', 'rep', 'meeting', 'other'];
-function eventsOut_() { return { events: clean_(rows_('Events')) }; }
+function eventsOut_() { return { events: clean_(rows_('Events')), calLog: calLog_().items }; }
+/* "What changed this month" — starts fresh every month, nothing is kept */
+function calMonthNow_() { return Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd').slice(0, 7); }
+function calLog_() {
+  var props = PropertiesService.getScriptProperties(), m = calMonthNow_(), log;
+  try { log = JSON.parse(props.getProperty('cal_log') || 'null'); } catch (e) { log = null; }
+  if (!log || log.month !== m) { log = { month: m, items: [] }; props.setProperty('cal_log', JSON.stringify(log)); }
+  return log;
+}
+function calLogAdd_(me, action, ev) {
+  var log = calLog_();
+  log.items.unshift({ at: nowIso_(), by: me.name, byUser: me.username, action: action, kind: ev.kind, date: ev.date, endDate: ev.endDate || '',
+                      title: ev.title || '', owner: ev.byName || me.name });
+  log.items = log.items.slice(0, 300);
+  PropertiesService.getScriptProperties().setProperty('cal_log', JSON.stringify(log));
+}
 /* each person's calendar color — only admins can set them */
 var CAL_COLORS = ['ngreen', 'nblue', 'npink', 'norange', 'npurple', 'nyellow', 'nred', 'nlime', 'green', 'blue', 'pink', 'yellow'];
 function calColors_() {
@@ -1137,9 +1153,11 @@ function a_eventSave_(me, p) {
     if (!ev) throw userErr_('That calendar entry was removed. Refresh the page.');
     if (ev.byUser !== me.username && me.role !== 'admin') throw userErr_('Only ' + ev.byName + ' (or an admin) can change this entry.');
     update_('Events', ev.id, fields);
+    calLogAdd_(me, 'changed', merge_(ev, fields));
   } else {
     fields.id = uid_(); fields.byUser = me.username; fields.byName = me.name; fields.createdAt = nowIso_();
     insert_('Events', fields);
+    calLogAdd_(me, 'added', fields);
   }
   return eventsOut_();
 }
@@ -1148,6 +1166,7 @@ function a_eventDelete_(me, p) {
   if (!ev) return eventsOut_();
   if (ev.byUser !== me.username && me.role !== 'admin') throw userErr_('Only ' + ev.byName + ' (or an admin) can delete this entry.');
   remove_('Events', ev.id);
+  calLogAdd_(me, 'deleted', ev);
   return eventsOut_();
 }
 
