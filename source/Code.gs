@@ -71,7 +71,7 @@ var TABLES = {
   Meds:     ['id', 'name', 'ndc', 'ndc11', 'lot', 'expiration', 'qty', 'location', 'notes', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'],
   Swaps:    ['id', 'date', 'task', 'fromName', 'toName', 'coverId', 'origDate', 'createdAt'],
   Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls', 'deleted', 'deletedAt', 'deletedBy', 'editedAt', 'authorFlag', 'urgent', 'ackAt', 'remindedAt', 'firstSeenAt'],
-  NoteComments: ['id', 'noteKey', 'text', 'byUser', 'byName', 'at', 'kind'],
+  NoteComments: ['id', 'noteKey', 'text', 'byUser', 'byName', 'at', 'kind', 'img'],
   Events:   ['id', 'date', 'endDate', 'kind', 'title', 'time', 'notes', 'byUser', 'byName', 'createdAt', 'updatedAt'],
   QC:       ['id', 'loggedAt', 'test', 'lot', 'expiration', 'reason', 'posControl', 'negControl', 'result', 'byName', 'by', 'notes', 'voided', 'voidReason', 'voidedBy']
 };
@@ -1014,8 +1014,9 @@ function a_noteComment_(me, p) {
   var n = mustSeeNote_(me, p.id);
   noteLocked_(me, n);
   var text = str_(p.text).slice(0, 500);
-  if (!text) throw userErr_('Write a comment first.');
-  insert_('NoteComments', { id: uid_(), noteKey: noteKey_(n), text: text, byUser: me.username, byName: me.name, at: nowIso_(), kind: 'comment' });
+  var img = /^[a-f0-9]{32}$/.test(String(p.img || '')) ? String(p.img) : '';
+  if (!text && !img) throw userErr_('Write a comment or add a picture first.');
+  insert_('NoteComments', { id: uid_(), noteKey: noteKey_(n), text: text, byUser: me.username, byName: me.name, at: nowIso_(), kind: 'comment', img: img });
   // flag it as new again for the other walls
   noteGroup_(n).forEach(function (x) { if (x.wall !== me.username) update_('Notes', x.id, { seenAt: '', firstSeenAt: x.firstSeenAt || x.seenAt || '' }); });
   // and for the person who wrote the note (when it isn't on their own wall)
@@ -1024,7 +1025,7 @@ function a_noteComment_(me, p) {
   var flagAuthor = n.fromUser !== me.username && !authorOnWall;
   group.forEach(function (x) { update_('Notes', x.id, { authorFlag: flagAuthor }); });
   noteNotify_(me, n, me.name + ' commented on a sticky note',
-    me.name + ' commented on the sticky note:\n\n"' + n.text + '"\n\nComment: "' + text + '"');
+    me.name + ' commented on the sticky note:\n\n"' + n.text + '"\n\nComment: ' + (text ? '"' + text + '"' : '') + (img ? (text ? ' ' : '') + '[sent a picture — open the hub to see it]' : ''));
   return noteOut_(me);
 }
 
