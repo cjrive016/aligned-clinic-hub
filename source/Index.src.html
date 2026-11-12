@@ -341,6 +341,7 @@
   .ev-other{ background:#F3EAF2; border-color:#7C4A78; color:#5C3459; }
   .legend-off{ background:#C43D3D; } .legend-rep{ background:#2E7D4F; } .legend-meeting{ background:#2E7AB8; } .legend-other{ background:#7C4A78; }
   .agenda{ margin-top:18px; }
+  .agadded{ font-size:12px; color:var(--ink-soft); }
   .calwrap{ display:grid; grid-template-columns:minmax(0,1fr) 270px; gap:14px; align-items:start; }
   @media (max-width:900px){ .calwrap{ grid-template-columns:1fr; } }
   .calside{ border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px; background:#FBFCFE; max-height:640px; overflow:auto; }
@@ -1566,6 +1567,14 @@ function renderCalLog(){
     }).join('')
     : '<div class="muted" style="font-size:13px">Nothing has changed on the calendar yet this month.</div>';
 }
+/** "Added by Jerry on Nov 12, 2026, 12:30 PM · edited Nov 13" */
+function addedLine(e){
+  const who = e.byUser === D.me.username ? 'you' : (e.byName || 'someone');
+  const at = e.createdAt ? ' on ' + fmtDateTime(e.createdAt) : '';
+  const edited = e.updatedAt && e.createdAt && (new Date(e.updatedAt) - new Date(e.createdAt)) > 60000
+    ? ' · edited ' + new Date(e.updatedAt).toLocaleDateString([], { month:'short', day:'numeric' }) : '';
+  return 'Added by ' + who + at + edited;
+}
 const canEditEv = e => D.me.role === 'admin' || e.byUser === D.me.username;
 function evOn(ymd){
   return (D.events || []).filter(e => e.date <= ymd && evEnd(e) >= ymd)
@@ -1597,7 +1606,7 @@ function renderCalendar(){
     const ymd = ymdOf(d), other = d.getMonth() !== m - 1, wk = d.getDay() === 0 || d.getDay() === 6;
     html += '<div class="calday' + (other ? ' other' : '') + (wk ? ' weekend' : '') + (ymd === today ? ' today' : '') + (changedDays[ymd] ? ' changed' : '') + '" onclick="calAdd(\'' + ymd + '\')"' + (changedDays[ymd] ? ' title="Changed this month"' : '') + '>'
       + '<span class="dn">' + d.getDate() + '</span>'
-      + evOn(ymd).map(e => '<div class="evchip" style="' + evStyle(e) + '" title="' + esc(evLabel(e) + (e.time ? ' · ' + e.time : '')) + '" onclick="event.stopPropagation(); calOpen(\'' + esc(e.id) + '\')">' + esc((e.time && e.kind !== 'off' ? e.time + ' ' : '') + evLabel(e)) + '</div>').join('')
+      + evOn(ymd).map(e => '<div class="evchip" style="' + evStyle(e) + '" title="' + esc(evLabel(e) + (e.time ? ' · ' + e.time : '') + '\n' + addedLine(e)) + '" onclick="event.stopPropagation(); calOpen(\'' + esc(e.id) + '\')">' + esc((e.time && e.kind !== 'off' ? e.time + ' ' : '') + evLabel(e)) + '</div>').join('')
       + '</div>';
   }
   $('calGrid').innerHTML = html;
@@ -1608,7 +1617,7 @@ function renderCalendar(){
   $('calAgenda').innerHTML = list.length ? list.map(e => '<div class="agrow">'
       + '<div class="agd">' + esc(fmtYmd(e.date)) + (e.endDate ? '<small>through ' + esc(fmtYmd(e.endDate)) + '</small>' : '') + (e.time ? '<small>' + esc(e.time) + '</small>' : '') + '</div>'
       + '<div class="agt"><span class="evchip" style="' + evStyle(e) + '">' + esc(evLabel(e)) + '</span>'
-      + '<div class="agm">' + (e.notes ? esc(e.notes) + '\n' : '') + 'Added by ' + esc(e.byUser === D.me.username ? 'you' : e.byName) + '</div></div>'
+      + '<div class="agm">' + (e.notes ? esc(e.notes) + '\n' : '') + '<span class="agadded">' + esc(addedLine(e)) + '</span></div></div>'
       + '<div class="aga">' + (canEditEv(e) ? '<button class="btn btn-white btn-sm" onclick="calEdit(\'' + esc(e.id) + '\')">Edit</button><button class="btn btn-white btn-sm" onclick="calDelete(\'' + esc(e.id) + '\')">Delete</button>' : '') + '</div>'
       + '</div>').join('')
     : '<div class="emptymsg">Nothing on the calendar this month yet.</div>';
@@ -1631,7 +1640,7 @@ async function calAdd(date){
 }
 async function calEdit(id){
   const e = (D.events || []).find(x => x.id === id); if(!e || !canEditEv(e)) return;
-  const r = await ask({ title:'Edit calendar entry', okText:'Save', fields: calForm(e) });
+  const r = await ask({ title:'Edit calendar entry', okText:'Save', message: addedLine(e), fields: calForm(e) });
   if(!r) return;
   r.id = id;
   const res = await act('eventSave', r, 'Saved.');
@@ -1648,7 +1657,7 @@ async function calOpen(id){
   if(canEditEv(e)) return calEdit(id);
   await ask({ title: EV_KINDS[e.kind] || 'Calendar', okText:'Close', noCancel:false,
     message: evLabel(e) + '\n' + fmtYmd(e.date) + (e.endDate ? ' through ' + fmtYmd(e.endDate) : '') + (e.time ? ' · ' + e.time : '')
-      + (e.notes ? '\n\n' + e.notes : '') + '\n\nAdded by ' + e.byName + '. Only they (or an admin) can change it.' });
+      + (e.notes ? '\n\n' + e.notes : '') + '\n\n' + addedLine(e) + '. Only they (or an admin) can change it.' });
 }
 /* =========================================================
    GLP PRICING (view for everyone, edit for admins)
