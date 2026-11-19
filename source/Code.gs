@@ -52,7 +52,7 @@ var CLEANING_RULE = 'Sweeping: if you see a spot, mop it up. Don\'t leave it for
   'Trash is a team job: both people on that day are responsible. Jobs swap every other week so everyone gets a turn. ' +
   'If you leave early, you still must do your task. Tasks can be done with or without patients here. ' +
   'Do NOT push it off until the next day: new day = new task. ' +
-  'Every task needs 2 people to sign off: one person signs off, then a second person checks it and confirms. ' +
+  'Press "I did this" when you finish your task. ' +
   'If a task is missed it carries over to your next work day until it is done. If someone covers your task, you take their next turn at that task.';
 
 var DEFAULT_QC_TESTS = [
@@ -319,7 +319,7 @@ function a_cleanDone_(me, p) {
   if (dd.tasks.indexOf(task) < 0) throw userErr_('That task is no longer on the schedule. Refresh the page.');
   var existing = signoffs_(date, task);
   if (existing.length >= SIGNOFFS_NEEDED) throw userErr_('Already signed off by ' + existing.map(function (r) { return r.doneByName; }).join(' and ') + '.');
-  if (existing.some(function (r) { return r.doneBy === me.username; })) throw userErr_('You already signed off this task. A second person needs to sign off too.');
+  if (existing.some(function (r) { return r.doneBy === me.username; })) throw userErr_('You already signed off this task.');
   var second = existing.length > 0;
 
   var labels = assigneesOf_(dd, task);
@@ -379,7 +379,7 @@ function cleanState_(s, week, extra) {
 }
 
 /** How many different people must sign off each cleaning task. */
-var SIGNOFFS_NEEDED = 2;
+var SIGNOFFS_NEEDED = 1;
 function signoffs_(date, task) {
   return rows_('Cleaning').filter(function (r) { return r.date === date && r.task === task; })
     .sort(function (a, b) { return a.doneAt < b.doneAt ? -1 : 1; });
@@ -436,7 +436,7 @@ function sendMorning_(s, dayKey, date) {
       sendMail_(e.u.email,
         'Your cleaning task for ' + DAY_NAMES[dayKey] + ' (' + prettyDate_(date) + ')',
         'Good morning ' + e.u.name + ',\n\nYou are on cleaning today' + (partners.length ? ' with ' + partners.join(' and ') : '') + '. ' +
-        'Please press "I did this" in the Clinic Hub when you finish. Each task needs two people to sign off, so have your partner (or anyone working) confirm it too:\n\n' +
+        'Please press "I did this" in the Clinic Hub when you finish:\n\n' +
         e.tasks.map(function (t) { return '  • ' + t; }).join('\n') +
         '\n\nReminder: ' + CLEANING_RULE + '\n\nThank you!');
     } catch (err) { console.warn('Morning email to ' + e.u.username + ' failed: ' + err); }
@@ -499,7 +499,7 @@ function sendMissed_(s, dayKey, date) {
   };
   sendMail_(s.notifyEmail,
     'Cleaning NOT done: ' + missing.length + ' task' + (missing.length === 1 ? '' : 's') + ' (' + DAY_NAMES[dayKey] + ')' + (older.length ? ' + ' + older.length + ' carried over' : ''),
-    'These cleaning tasks were not fully signed off today (' + DAY_NAMES[dayKey] + ' ' + prettyDate_(date) + '). Each task needs ' + SIGNOFFS_NEEDED + ' people to sign off.\n\n' +
+    'These cleaning tasks were not signed off today (' + DAY_NAMES[dayKey] + ' ' + prettyDate_(date) + ').\n\n' +
     missing.map(function (t) {
       var by = signed[t] || [];
       return '  • ' + t + ' — ' + whoOf(t) + (by.length ? '  (only signed off by ' + by.join(', ') + ' — needs a second sign-off)' : '  (not signed off)');

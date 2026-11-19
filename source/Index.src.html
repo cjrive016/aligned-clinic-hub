@@ -1954,7 +1954,7 @@ function setupStaticSelects(){
 /* =========================================================
    CLEANING
    ========================================================= */
-const SIGNOFFS_NEEDED = 2;
+const SIGNOFFS_NEEDED = 1;
 function cleanRecs(date, task){ return D.cleaning.filter(r => r.date === date && r.task === task).sort((a,b) => a.doneAt < b.doneAt ? -1 : 1); }
 function cleanFor(date, task){ return cleanRecs(date, task).length >= SIGNOFFS_NEEDED; }
 function myCarry(){ return (D.carryOver || []).filter(c => (c.users || []).includes(D.me.username)); }
@@ -2132,7 +2132,7 @@ async function signOff(o){
     if(!r) return;
     comment = r.comment;
   }
-  const res = await act('cleanDone', { date, task, comment }, (comment ? 'Signed off — Jacob was emailed your note.' : 'Signed off ✓') + ' Now a second person needs to confirm it.');
+  const res = await act('cleanDone', { date, task, comment }, (comment ? 'Signed off — Jacob was emailed your note.' : 'Signed off ✓'));
   applyClean(res);
   if(res && res.payback) toast(res.payback.toName + ' will do your ' + task + ' on ' + DAY_NAMES[dayOfYmd(res.payback.date)] + ' ' + fmtYmd(res.payback.date) + '.');
 }
