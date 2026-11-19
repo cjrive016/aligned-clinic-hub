@@ -2369,10 +2369,11 @@ function submitOrder(){
 
 async function editOrderCost(id){
   const o = D.orders.find(x => x.id === id); if(!o) return;
-  const r = await ask({ title:'Unit cost — ' + o.name, message:'Leave blank if you don\'t know it yet.', okText:'Save cost',
-    fields:[{ id:'price', label:'Cost each ($)', type:'number', step:'0.01', value: o.price ?? '' }] });
+  const r = await ask({ title:'Edit order — ' + o.name, message:'Change how many were ordered and the cost. Leave cost blank if you don\'t know it yet.' + askedNote(o), okText:'Save',
+    fields:[{ id:'qty', label:'How many ordered', type:'number', step:'1', value: String(o.qty), required:true },
+            { id:'price', label:'Cost each ($)', type:'number', step:'0.01', value: o.price ?? '' }] });
   if(!r) return;
-  const res = await act('orderCost', { id, price: r.price }, 'Cost saved.');
+  const res = await act('orderCost', { id, qty: r.qty, price: r.price }, 'Order updated.');
   if(res){ Object.assign(D, res); renderSupplies(); }
 }
 async function markOrdered(id){
@@ -2380,10 +2381,11 @@ async function markOrdered(id){
   const qs = quotesFor(o.name), best = qs[0];
   const r = await ask({ title:'Mark "' + o.name + '" ordered', okText:'Mark ordered',
     message: qs.length ? 'Saved prices (cheapest first):\n' + qs.map(q => '• ' + q.supplier + ': ' + priceLabel(q)).join('\n') : 'No prices saved for this item yet. Add where you ordered it from so you can compare next time.',
-    fields:[{ id:'supplier', label:'Ordered from', value: o.supplier || (best ? best.supplier : ''), placeholder:'e.g. Amazon' },
-            { id:'price', label:'Cost each ($) — for each one of the ' + o.qty + ' you ordered (box, case, etc.)', type:'number', step:'0.01', value: o.price ?? (best ? Number(best.price) : '') }] });
+    fields:[{ id:'qty', label:'How many you ordered (they asked for ' + o.qty + ')', type:'number', step:'1', value: String(o.qty), required:true },
+            { id:'supplier', label:'Ordered from', value: o.supplier || (best ? best.supplier : ''), placeholder:'e.g. Amazon' },
+            { id:'price', label:'Cost each ($) — for each one you ordered (box, case, etc.)', type:'number', step:'0.01', value: o.price ?? (best ? Number(best.price) : '') }] });
   if(!r) return;
-  const res = await act('orderOrdered', { id, supplier: r.supplier, price: r.price }, 'Marked ordered.');
+  const res = await act('orderOrdered', { id, qty: r.qty, supplier: r.supplier, price: r.price }, 'Marked ordered.');
   if(res){ Object.assign(D, res); renderSupplies(); }
 }
 async function markReceived(id){
@@ -2403,13 +2405,14 @@ async function removeOrder(id){
   if(res){ Object.assign(D, res); renderSupplies(); }
 }
 
+function askedNote(o){ return (o.askedQty !== null && o.askedQty !== undefined && o.askedQty !== o.qty) ? '\n(They asked for ' + o.askedQty + '.)' : ''; }
 function renderOrders(){
   const open = queueOrders(), needs = needsOrders().length, admin = isAdmin();
   $('orderList').innerHTML = open.length ? open.map(o => {
     const pill = o.status === 'ordered' ? '<span class="tag amber">Ordered</span>' : '<span class="tag red">Needs order</span>';
     const cost = (o.price === null || o.price === undefined) ? 'Cost: not set yet' : 'Cost: ' + money(o.price) + ' each · Total ' + money(o.price * o.qty);
     return '<div class="order-item ' + (o.status === 'ordered' ? 'ordered' : '') + '"><div>'
-      + '<div class="oi-title">' + esc(o.name) + ' × ' + o.qty + ' ' + pill + '</div>'
+      + '<div class="oi-title">' + esc(o.name) + ' × ' + o.qty + (o.askedQty !== null && o.askedQty !== undefined && o.askedQty !== o.qty ? ' <span class="muted" style="font-weight:400;font-size:12px">(asked for ' + o.askedQty + ')</span>' : '') + ' ' + pill + '</div>'
       + '<div class="oi-meta">For: ' + whoChip(o.assignTo) + '</div>'
       + '<div class="oi-meta">' + cost + (o.supplier ? ' · From <strong>' + esc(o.supplier) + '</strong>' : '') + '</div>'
       + (cheapestLine(o.name) ? '<div class="oi-meta oi-best">' + cheapestLine(o.name) + '</div>' : '')
@@ -2417,7 +2420,7 @@ function renderOrders(){
       + (o.status === 'ordered' && o.orderedAt ? ' · Ordered ' + esc(fmtDate(o.orderedAt)) : '') + (o.note ? ' · ' + esc(o.note) : '') + '</div>'
       + '</div><div class="rowactions">'
       + '<button class="btn btn-white btn-sm" onclick="openPrices(D.orders.find(x => x.id === \''+o.id+'\').name)">Compare prices</button>'
-      + (admin ? '<button class="btn btn-white btn-sm" onclick="editOrderCost(\''+o.id+'\')">Edit cost</button>' : '')
+      + (admin ? '<button class="btn btn-white btn-sm" onclick="editOrderCost(\''+o.id+'\')">Edit amount / cost</button>' : '')
       + (admin && o.status === 'needs' ? '<button class="btn btn-quiet btn-sm" onclick="markOrdered(\''+o.id+'\')">Mark ordered</button>' : '')
       + '<button class="btn btn-primary btn-sm" onclick="markReceived(\''+o.id+'\')">Received</button>'
       + (admin ? '<button class="btn btn-white btn-sm" onclick="removeOrder(\''+o.id+'\')">Remove</button>' : '')

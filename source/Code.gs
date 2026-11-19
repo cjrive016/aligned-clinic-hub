@@ -64,7 +64,7 @@ var DEFAULT_QC_TESTS = [
 var TABLES = {
   Users:    ['username', 'name', 'email', 'role', 'salt', 'hash', 'active', 'createdAt'],
   Items:    ['id', 'name', 'category', 'owner', 'qty', 'price', 'reorderAt', 'notes', 'paid', 'paidDate', 'createdAt'],
-  Orders:   ['id', 'itemId', 'name', 'qty', 'price', 'assignTo', 'by', 'note', 'status', 'requestedAt', 'orderedAt', 'receivedAt', 'supplier'],
+  Orders:   ['id', 'itemId', 'name', 'qty', 'price', 'assignTo', 'by', 'note', 'status', 'requestedAt', 'orderedAt', 'receivedAt', 'supplier', 'askedQty'],
   Quotes:   ['id', 'item', 'supplier', 'price', 'packQty', 'notes', 'updatedBy', 'updatedAt', 'byUser'],
   Cleaning: ['id', 'date', 'day', 'task', 'assigned', 'assignedName', 'doneBy', 'doneByName', 'doneAt', 'offAssignment', 'late', 'comment', 'kind'],
   Pricing:  ['id', 'grp', 'sort', 'code', 'dose', 'doseMg', 'volMl', 'units', 'price', 'vial', 'updatedBy', 'updatedAt'],
@@ -76,7 +76,7 @@ var TABLES = {
   QC:       ['id', 'loggedAt', 'test', 'lot', 'expiration', 'reason', 'posControl', 'negControl', 'result', 'byName', 'by', 'notes', 'voided', 'voidReason', 'voidedBy']
 };
 var KEYS = { Users: 'username' };
-var NUM_FIELDS = { qty: 1, price: 1, reorderAt: 1 };
+var NUM_FIELDS = { qty: 1, price: 1, reorderAt: 1, askedQty: 1 };
 var BOOL_FIELDS = { paid: 1, active: 1, offAssignment: 1, late: 1, voided: 1, done: 1, deleted: 1, authorFlag: 1, urgent: 1 };
 var DATE_ONLY = { date: 1, expiration: 1 };
 
@@ -602,10 +602,12 @@ function a_itemPaid_(me, p) {
   return supplies_();
 }
 
-function openOrderFor_(itemId, name) {
+function openOrderFor_(itemId, name, assignTo) {
   var lname = String(name || '').toLowerCase();
   return rows_('Orders').filter(function (o) {
     if (o.status === 'received') return false;
+    // the same item can be on order for different people (e.g. one for Sarah, one for Erica)
+    if (assignTo !== undefined && String(o.assignTo || '') !== String(assignTo || '')) return false;
     if (itemId) return o.itemId === itemId;
     return String(o.name).toLowerCase() === lname;
   })[0] || null;
@@ -624,7 +626,7 @@ function newOrder_(o) {
 function a_orderFlagItem_(me, p) {
   var it = find_('Items', p.id);
   if (!it) throw userErr_('That item was deleted. Refresh the page.');
-  if (openOrderFor_(it.id)) throw userErr_('"' + it.name + '" is already in the order queue.');
+  if (openOrderFor_(it.id, '', it.owner)) throw userErr_('"' + it.name + '" is already in the order queue for ' + (it.owner || CONFIG.HOUSE) + '.');
   var o = newOrder_({ itemId: it.id, name: it.name, qty: p.qty, by: me.name, note: str_(p.note), assignTo: it.owner });
   notifyOrders_([o]);
   return supplies_();
@@ -638,7 +640,7 @@ function a_orderRequest_(me, p) {
   var match = rows_('Items').filter(function (i) { return i.name.toLowerCase() === raw.toLowerCase(); })[0];
   var itemId = match ? match.id : '';
   var name = match ? match.name : raw;
-  if (openOrderFor_(itemId, name)) throw userErr_('"' + name + '" is already in the order queue.');
+  if (openOrderFor_(itemId, name, assignTo)) throw userErr_('"' + name + '" is already in the order queue for ' + assignTo + '. Change the amount on that order instead.');
   var o = newOrder_({ itemId: itemId, name: name, qty: p.qty, by: me.name, note: str_(p.note), assignTo: assignTo });
   notifyOrders_([o]);
   return supplies_();
@@ -653,7 +655,9 @@ function a_orderCost_(me, p) {
     if (!isFinite(price) || price < 0) throw userErr_('Please enter a valid cost (0 or more).');
     price = round2_(price);
   }
-  update_('Orders', o.id, { price: price });
+  var patch = { price: price };
+  setOrderQty_(o, p.qty, patch);
+  update_('Orders', o.id, patch);
   if (o.itemId && price !== null && find_('Items', o.itemId)) update_('Items', o.itemId, { price: price });
   return supplies_();
 }
@@ -663,6 +667,7 @@ function a_orderOrdered_(me, p) {
   if (!o) throw userErr_('That order was removed. Refresh the page.');
   var patch = { status: 'ordered', orderedAt: nowIso_() };
   if (p.supplier !== undefined) patch.supplier = str_(p.supplier).slice(0, 80);
+  setOrderQty_(o, p.qty, patch);
   if (p.price !== undefined && String(p.price).trim() !== '') {
     var pr = parseFloat(p.price);
     if (isFinite(pr) && pr >= 0) {
@@ -672,6 +677,17 @@ function a_orderOrdered_(me, p) {
   }
   update_('Orders', o.id, patch);
   return supplies_();
+}
+
+/** Change how many were ordered; remembers how many were asked for the first time it changes. */
+function setOrderQty_(o, qty, patch) {
+  if (qty === undefined || qty === null || String(qty).trim() === '') return;
+  var n = parseInt(qty, 10);
+  if (!isFinite(n) || n < 1) throw userErr_('How many must be 1 or more.');
+  if (n > 100000) throw userErr_('That amount is too big.');
+  if (n === o.qty) return;
+  if (o.askedQty === null || o.askedQty === undefined) patch.askedQty = o.qty;
+  patch.qty = n;
 }
 
 function a_orderReceived_(me, p) {
