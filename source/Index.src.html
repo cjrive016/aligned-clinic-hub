@@ -1483,19 +1483,12 @@ function scopeBox(title, verbMine, verbAll, danger, scopeMsg){
 async function noteDone(id, done){
   if(!done){ applyNotes(await act('noteDone', { id, done }, 'Reopened.')); return; }
   const n = findNote(id); if(!n) return;
-  const me = D.me.username, shared = openCopies(n).length > 1, onMine = !!(copyOn(n, me) && !noteArchived(copyOn(n, me)));
+  // Done only ever takes it off YOUR wall (or your "Notes I left" list). Everyone else presses Done themselves.
+  const me = D.me.username, mine = copyOn(n, me), onMine = !!(mine && !noteArchived(mine));
   const others = openCopies(n).filter(x => x.wall !== me).map(x => userName(x.wall).split(' ')[0]);
   const othersTxt = others.length ? others.join(', ').replace(/, ([^,]*)$/, ' and $1') : '';
-  let scope = 'all';
-  if(others.length){
-    scope = await scopeBox('Mark this note done?',
-      onMine ? 'Done with my part — leave it on ' + othersTxt + '\'s wall' : 'Take it off my list — leave it on ' + othersTxt + '\'s wall',
-      'Done for everyone', false,
-      'This note is still on ' + othersTxt + '\'s wall. You can finish just your part and leave it there, or close it for everyone. Only an admin can reopen it from the archive.');
-    if(!scope) return;
-  } else if(!await confirmBox('Mark this note done?', shared ? 'It comes off every wall it is still on and moves to the archive.' : 'It moves to the archive. Only an admin can reopen it.', 'Mark done')) return;
-  const mid = scope === 'mine' && onMine ? copyOn(n, me).id : id;
-  applyNotes(await act('noteDone', { id: mid, done: true, scope }, scope === 'mine' ? 'Done ✓ — still on ' + othersTxt + '\'s wall.' : 'Done ✓ — moved to the archive.'));
+  applyNotes(await act('noteDone', { id: onMine ? mine.id : id, done: true, scope: 'mine' },
+    others.length ? 'Done ✓ — still on ' + othersTxt + '\'s wall until they press Done.' : 'Done ✓ — moved to the archive.'));
 }
 async function noteDelete(id){
   const n = findNote(id); if(!n) return;
