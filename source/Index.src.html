@@ -786,6 +786,11 @@
     <div class="wallhead"><h2 id="wallTitle" style="margin:0">My wall</h2></div>
     <div class="muted" id="wallHint" style="margin:-6px 0 14px"></div>
     <div class="notegrid" id="noteGrid"></div>
+    <div id="sentWrap">
+      <div class="wallhead" style="margin-top:26px"><h2 style="margin:0">Notes I left for others</h2></div>
+      <div class="muted" style="margin:-6px 0 14px">These stay here until you press Done, even after the other person finishes. Each person's ✔ Done shows on the note.</div>
+      <div class="notegrid" id="sentGrid"></div>
+    </div>
   </section>
 
   <section id="tab-admin" class="tab">
@@ -1114,7 +1119,7 @@ function myOpenNotes(){ return (D.notes || []).filter(n => n.wall === D.me.usern
 function myNewNotes(){ return (D.notes || []).filter(n => n.wall === D.me.username && !noteArchived(n) && !n.seenAt); }
 /** replies on notes I left on someone else's wall */
 function myNewReplies(){ return dedupe((D.notes || []).filter(n => n.fromUser === D.me.username && n.authorFlag && !noteArchived(n))); }
-function pickWall(v){ ui.noteView = v; renderNotes(); if(ui.tab === 'notes'){ if(v === 'mine') markNotesSeen(); if(v === 'sent') markRepliesSeen(); } }
+function pickWall(v){ if(v === 'sent') v = 'mine'; ui.noteView = v; renderNotes(); if(ui.tab === 'notes'){ if(v === 'mine'){ markNotesSeen(); markRepliesSeen(); } } }
 function openNewNotes(){ showTab('notes'); pickWall('mine'); }
 let replyTimer = null;
 function markRepliesSeen(){
@@ -1233,12 +1238,19 @@ function renderNotes(){
   const me = D.me.username, admin = D.me.role === 'admin';
   const users = (D.users || []).slice().sort((a,b) => a.username === me ? -1 : b.username === me ? 1 : a.name.localeCompare(b.name));
   const notes = D.notes || [];
-  if(!['mine','sent','all','archive'].includes(ui.noteView) || (ui.noteView === 'all' && !admin)) ui.noteView = 'mine';
+  if(!['mine','all','archive'].includes(ui.noteView) || (ui.noteView === 'all' && !admin)) ui.noteView = 'mine';
   const mineList = notes.filter(n => n.wall === me && !noteArchived(n));
-  const sentList = dedupe(notes.filter(n => n.fromUser === me && !noteArchived(n) && noteWalls(n).some(w => w !== me) && !String(n.hiddenFor || '').split(',').includes(me)));
+  // notes I left for others stay on my list until *I* press Done — even after they finish their part
+  const hiddenForMe = n => String(n.hiddenFor || '').split(',').includes(me);
+  const myOpenCopy = n => notes.some(x => noteKey(x) === noteKey(n) && x.wall === me && !noteArchived(x));
+  const allDeleted = n => notes.filter(x => noteKey(x) === noteKey(n)).every(x => x.deleted);
+  const sentKeys = {};
+  const sentList = dedupe(notes.filter(n => n.fromUser === me && noteWalls(n).some(w => w !== me) && !hiddenForMe(n) && !myOpenCopy(n) && !allDeleted(n))
+    .sort((a,b) => noteArchived(a) - noteArchived(b)));
+  sentList.forEach(n => { sentKeys[noteKey(n)] = 1; });
   // archive: copies I took off my own wall, plus notes that are finished on every wall
   const allClosed = n => notes.filter(x => noteKey(x) === noteKey(n)).every(noteArchived);
-  const archList = dedupe(notes.filter(n => noteArchived(n) && (n.wall === me || allClosed(n)))
+  const archList = dedupe(notes.filter(n => noteArchived(n) && !sentKeys[noteKey(n)] && (n.wall === me || allClosed(n)))
     .sort((a,b) => (a.wall === me ? 0 : 1) - (b.wall === me ? 0 : 1)));
   const allOpen = notes.filter(n => !noteArchived(n));
   if(ui.allWall && !users.find(u => u.username === ui.allWall)) ui.allWall = '';
@@ -1246,9 +1258,9 @@ function renderNotes(){
   const newCount = myNewNotes().length;
   const tab = (v, label, cnt, red) => '<button class="' + (ui.noteView === v ? 'on' : '') + '" onclick="pickWall(\'' + v + '\')">' + label + (cnt ? '<span class="cnt"' + (red ? ' style="background:var(--flag);color:#fff"' : '') + '>' + cnt + '</span>' : '') + '</button>';
   const replyCount = myNewReplies().length;
-  $('wallTabs').innerHTML = tab('mine', 'My wall', newCount || mineList.length, !!newCount) + tab('sent', 'Notes I left', sentList.length, false)
+  $('wallTabs').innerHTML = tab('mine', 'My notes', newCount || mineList.length, !!newCount)
     + (admin ? tab('all', 'All walls (admin)', dedupe(allOpen).length) : '') + tab('archive', 'Archive', 0);
-  $('wallTitle').textContent = ui.noteView === 'mine' ? 'My wall' : ui.noteView === 'sent' ? 'Notes I left for others' : ui.noteView === 'all' ? 'All walls' : 'Archive';
+  $('wallTitle').textContent = ui.noteView === 'mine' ? 'My wall' : ui.noteView === 'all' ? 'All walls' : 'Archive';
   $('wallHint').innerHTML = ui.noteView === 'all'
     ? 'Every open note on every wall. Show: <select onchange="ui.allWall=this.value; renderNotes()" style="display:inline-block;width:auto;padding:4px 8px">'
       + '<option value="">Everyone</option>' + users.map(u => '<option value="' + esc(u.username) + '"' + (ui.allWall === u.username ? ' selected' : '') + '>' + esc(u.name) + '\'s wall</option>').join('') + '</select>'
@@ -1266,17 +1278,21 @@ function renderNotes(){
   // cards
   const nameOf = u => u === me ? 'You' : userName(u);
   const comments = D.noteComments || [];
-  const card = n => {
-    const arch = noteArchived(n);
+  const card = (n, section) => {
+    // in "Notes I left" a note stays open for me until I press Done, even if everyone else finished
+    const arch = section === 'sent' ? false : noteArchived(n);
     const canClose = !arch && (admin || n.fromUser === me || noteWalls(n).includes(me));
     const all = comments.filter(c => c.noteKey === noteKey(n)).sort((a,b) => a.at < b.at ? -1 : 1);
     const adds = all.filter(c => c.kind === 'addition'), cs = all.filter(c => c.kind !== 'addition');
-    const isNew = !arch && ((ui.noteView === 'mine' && n.wall === me && !n.seenAt) || (ui.noteView === 'sent' && n.fromUser === me && n.authorFlag));
+    const isNew = !arch && ((section !== 'sent' && ui.noteView === 'mine' && n.wall === me && !n.seenAt) || (section === 'sent' && n.fromUser === me && n.authorFlag));
     const newLabel = cs.some(c => c.byUser !== me) ? 'NEW REPLY' : 'NEW';
     const id = esc(n.id);
     let acts = '';
     if(!arch){
-      acts = '<button onclick="noteDone(\'' + id + '\', true)">✓ Done</button>'
+      const mineCopy = copyOn(n, me), canDone = n.fromUser === me || !!(mineCopy && !noteArchived(mineCopy));
+      acts = (canDone ? '<button onclick="noteDone(\'' + id + '\', true)">✓ Done</button>' : '')
+      if(section === 'sent' && allClosed(n)) acts = '<button onclick="noteDone(\'' + id + '\', true)">✓ Done — clear it off my list</button>';
+      else acts = acts
         + (n.fromUser === me ? '<button onclick="noteEdit(\'' + id + '\')">✎ Add to note</button>' : '')
         + '<button onclick="noteAddPeople(\'' + id + '\')">👥 Add person</button>'
         + (canClose ? '<button onclick="noteDelete(\'' + id + '\')">Delete</button>' : '');
@@ -1297,13 +1313,18 @@ function renderNotes(){
       + '<div class="nact"><button onclick="openChat(\'' + id + '\')">💬 Comments' + (cs.length ? ' (' + cs.length + ')' : '') + '</button>' + acts + '</div>'
       + '</div>';
   };
-  let list = ui.noteView === 'mine' ? mineList : ui.noteView === 'sent' ? sentList : ui.noteView === 'all' ? allList : archList;
+  let list = ui.noteView === 'mine' ? mineList : ui.noteView === 'all' ? allList : archList;
   list = list.slice().sort((a,b) => {
     const ka = ui.noteView === 'archive' ? (a.deletedAt || a.doneAt) : a.createdAt, kb = ui.noteView === 'archive' ? (b.deletedAt || b.doneAt) : b.createdAt;
     if(ui.noteView !== 'archive' && !!a.urgent !== !!b.urgent) return a.urgent ? -1 : 1;   // urgent first
     return ka < kb ? 1 : -1; });
-  $('noteGrid').innerHTML = list.length ? list.map(card).join('')
-    : '<div class="emptymsg">' + (ui.noteView === 'mine' ? 'No sticky notes on your wall.' : ui.noteView === 'all' ? 'No open notes.' : ui.noteView === 'sent' ? 'You haven\'t left any open notes for anyone.' : 'Nothing in the archive yet.') + '</div>';
+  $('noteGrid').innerHTML = list.length ? list.map(n => card(n)).join('')
+    : '<div class="emptymsg">' + (ui.noteView === 'mine' ? 'No sticky notes on your wall.' : ui.noteView === 'all' ? 'No open notes.' : 'Nothing in the archive yet.') + '</div>';
+  const showSent = ui.noteView === 'mine';
+  $('sentWrap').classList.toggle('hidden', !showSent);
+  if(showSent){
+    $('sentGrid').innerHTML = sentList.length ? sentList.map(n => card(n, 'sent')).join('') : '<div class="emptymsg">You haven\'t left any notes for anyone.</div>';
+  }
   renderNotesBadges();
 }
 async function addNote(){
@@ -1314,7 +1335,7 @@ async function addNote(){
   const others = walls.filter(w => w !== D.me.username).map(userName);
   const urgent = $('n-urgent').checked;
   const res = await act('noteAdd', { text, walls, color: noteColor, urgent }, (urgent ? '🚨 Urgent note posted. ' : 'Note posted. ') + (others.length ? others.join(', ') + (others.length === 1 ? ' was' : ' were') + ' emailed.' : ''));
-  if(res){ $('n-text').value = ''; $('n-urgent').checked = false; ui.noteView = others.length ? 'sent' : 'mine'; applyNotes(res); }
+  if(res){ $('n-text').value = ''; $('n-urgent').checked = false; ui.noteView = 'mine'; applyNotes(res); }
 }
 function toggleNoteWall(w, on){
   ui.noteWalls = (ui.noteWalls || []).filter(x => x !== w);
@@ -1886,7 +1907,7 @@ function showTab(name, silent){
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
   document.querySelectorAll('#mainnav button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   if(name === 'admin' && !silent && D && D.me.role === 'admin') renderAdmin();
-  if(D && name === 'notes'){ renderNotes(); if((ui.noteView || 'mine') === 'mine') markNotesSeen(); if(ui.noteView === 'sent') markRepliesSeen(); }
+  if(D && name === 'notes'){ renderNotes(); if((ui.noteView || 'mine') === 'mine'){ markNotesSeen(); markRepliesSeen(); } }
   if(D) renderNotesBadges();
   if(!silent) window.scrollTo({ top:0 });
 }

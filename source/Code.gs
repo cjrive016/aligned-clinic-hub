@@ -1055,20 +1055,23 @@ function a_noteDone_(me, p) {
     noteGroup_(n).forEach(function (x) { update_('Notes', x.id, { done: false, doneAt: '', doneBy: '', deleted: false, deletedAt: '', deletedBy: '' }); });
     return noteOut_(me);
   }
-  noteLocked_(me, n);
+  // Done only ever finishes MY part: my copy comes off my wall, and if I wrote it, it leaves my
+  // "Notes I left" list. Everyone else keeps it until they press Done themselves.
   var at = nowIso_();
-  var open = noteGroup_(n).filter(function (x) { return !noteArchived_(x); });
-  if (p.scope === 'mine' && !open.some(function (x) { return x.wall === me.username; })) {
-    // I wrote it (or I'm an admin) but it isn't on my wall: just clear it off my "Notes I left" list,
-    // it stays open on everyone else's wall
-    var hid = function (x) { return String(x.hiddenFor || '').split(',').filter(String); };
-    noteGroup_(n).forEach(function (x) {
-      var h = hid(x); if (h.indexOf(me.username) < 0) h.push(me.username);
-      update_('Notes', x.id, { hiddenFor: h.join(',') });
-    });
-    return noteOut_(me);
+  var group = noteGroup_(n);
+  var mineOpen = group.filter(function (x) { return x.wall === me.username && !noteArchived_(x); });
+  var isWriter = n.fromUser === me.username;
+  if (!mineOpen.length && !isWriter) {
+    if (me.role === 'admin') noteLocked_(me, n);
+    throw userErr_('This note is not on your wall.');
   }
-  noteTargets_(me, n, p.scope, 'mark done').forEach(function (x) { update_('Notes', x.id, { done: true, doneAt: at, doneBy: me.name }); });
+  mineOpen.forEach(function (x) { update_('Notes', x.id, { done: true, doneAt: at, doneBy: me.name }); });
+  if (isWriter) {
+    group.forEach(function (x) {
+      var h = String(x.hiddenFor || '').split(',').filter(String);
+      if (h.indexOf(me.username) < 0) { h.push(me.username); update_('Notes', x.id, { hiddenFor: h.join(',') }); }
+    });
+  }
   return noteOut_(me);
 }
 function a_noteDelete_(me, p) {
