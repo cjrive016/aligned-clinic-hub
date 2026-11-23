@@ -1235,7 +1235,7 @@ function renderNotes(){
   const notes = D.notes || [];
   if(!['mine','sent','all','archive'].includes(ui.noteView) || (ui.noteView === 'all' && !admin)) ui.noteView = 'mine';
   const mineList = notes.filter(n => n.wall === me && !noteArchived(n));
-  const sentList = dedupe(notes.filter(n => n.fromUser === me && !noteArchived(n) && noteWalls(n).some(w => w !== me)));
+  const sentList = dedupe(notes.filter(n => n.fromUser === me && !noteArchived(n) && noteWalls(n).some(w => w !== me) && !String(n.hiddenFor || '').split(',').includes(me)));
   // archive: copies I took off my own wall, plus notes that are finished on every wall
   const allClosed = n => notes.filter(x => noteKey(x) === noteKey(n)).every(noteArchived);
   const archList = dedupe(notes.filter(n => noteArchived(n) && (n.wall === me || allClosed(n)))
@@ -1468,12 +1468,12 @@ function closeChat(){
 function copyOn(n, wall){ return (D.notes || []).find(x => noteKey(x) === noteKey(n) && x.wall === wall); }
 function openCopies(n){ return (D.notes || []).filter(x => noteKey(x) === noteKey(n) && !noteArchived(x)); }
 /** shared note → ask "just me" or "everyone" */
-function scopeBox(title, verbMine, verbAll, danger){
+function scopeBox(title, verbMine, verbAll, danger, scopeMsg){
   return new Promise(resolve => {
     modalOpen = true;
     const close = v => { $('modalRoot').innerHTML = ''; modalOpen = false; resolve(v); };
     $('modalRoot').innerHTML = '<div class="modal-bg"><div class="modal" role="dialog" aria-modal="true"><h3>' + esc(title) + '</h3>'
-      + '<div class="msg">This note is on more than one wall. Only an admin can reopen it from the archive.</div>'
+      + '<div class="msg">' + esc(scopeMsg || 'This note is on more than one wall. Only an admin can reopen it from the archive.') + '</div>'
       + '<div class="scopebtns"><button class="btn btn-primary" id="scMine">' + esc(verbMine) + '</button>'
       + '<button class="btn ' + (danger ? 'btn-flag' : 'btn-white') + '" id="scAll">' + esc(verbAll) + '</button>'
       + '<button class="btn btn-link" id="scCancel">Cancel</button></div></div></div>';
@@ -1484,13 +1484,18 @@ async function noteDone(id, done){
   if(!done){ applyNotes(await act('noteDone', { id, done }, 'Reopened.')); return; }
   const n = findNote(id); if(!n) return;
   const me = D.me.username, shared = openCopies(n).length > 1, onMine = !!(copyOn(n, me) && !noteArchived(copyOn(n, me)));
+  const others = openCopies(n).filter(x => x.wall !== me).map(x => userName(x.wall).split(' ')[0]);
+  const othersTxt = others.length ? others.join(', ').replace(/, ([^,]*)$/, ' and $1') : '';
   let scope = 'all';
-  if(shared && onMine){
-    scope = await scopeBox('Mark this note done?', 'Done with my part — take it off my wall only', 'Done for everyone');
+  if(others.length){
+    scope = await scopeBox('Mark this note done?',
+      onMine ? 'Done with my part — leave it on ' + othersTxt + '\'s wall' : 'Take it off my list — leave it on ' + othersTxt + '\'s wall',
+      'Done for everyone', false,
+      'This note is still on ' + othersTxt + '\'s wall. You can finish just your part and leave it there, or close it for everyone. Only an admin can reopen it from the archive.');
     if(!scope) return;
   } else if(!await confirmBox('Mark this note done?', shared ? 'It comes off every wall it is still on and moves to the archive.' : 'It moves to the archive. Only an admin can reopen it.', 'Mark done')) return;
-  const mid = scope === 'mine' ? copyOn(n, me).id : id;
-  applyNotes(await act('noteDone', { id: mid, done: true, scope }, scope === 'mine' ? 'Done ✓ — taken off your wall. Everyone else still has it.' : 'Done ✓ — moved to the archive.'));
+  const mid = scope === 'mine' && onMine ? copyOn(n, me).id : id;
+  applyNotes(await act('noteDone', { id: mid, done: true, scope }, scope === 'mine' ? 'Done ✓ — still on ' + othersTxt + '\'s wall.' : 'Done ✓ — moved to the archive.'));
 }
 async function noteDelete(id){
   const n = findNote(id); if(!n) return;

@@ -70,7 +70,7 @@ var TABLES = {
   Pricing:  ['id', 'grp', 'sort', 'code', 'dose', 'doseMg', 'volMl', 'units', 'price', 'vial', 'updatedBy', 'updatedAt'],
   Meds:     ['id', 'name', 'ndc', 'ndc11', 'lot', 'expiration', 'qty', 'location', 'notes', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'],
   Swaps:    ['id', 'date', 'task', 'fromName', 'toName', 'coverId', 'origDate', 'createdAt'],
-  Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls', 'deleted', 'deletedAt', 'deletedBy', 'editedAt', 'authorFlag', 'urgent', 'ackAt', 'remindedAt', 'firstSeenAt'],
+  Notes:    ['id', 'wall', 'text', 'color', 'fromUser', 'fromName', 'createdAt', 'seenAt', 'done', 'doneAt', 'doneBy', 'groupId', 'walls', 'deleted', 'deletedAt', 'deletedBy', 'editedAt', 'authorFlag', 'urgent', 'ackAt', 'remindedAt', 'firstSeenAt', 'hiddenFor'],
   NoteComments: ['id', 'noteKey', 'text', 'byUser', 'byName', 'at', 'kind', 'img'],
   Events:   ['id', 'date', 'endDate', 'kind', 'title', 'time', 'notes', 'byUser', 'byName', 'createdAt', 'updatedAt'],
   QC:       ['id', 'loggedAt', 'test', 'lot', 'expiration', 'reason', 'posControl', 'negControl', 'result', 'byName', 'by', 'notes', 'voided', 'voidReason', 'voidedBy']
@@ -1057,6 +1057,17 @@ function a_noteDone_(me, p) {
   }
   noteLocked_(me, n);
   var at = nowIso_();
+  var open = noteGroup_(n).filter(function (x) { return !noteArchived_(x); });
+  if (p.scope === 'mine' && !open.some(function (x) { return x.wall === me.username; })) {
+    // I wrote it (or I'm an admin) but it isn't on my wall: just clear it off my "Notes I left" list,
+    // it stays open on everyone else's wall
+    var hid = function (x) { return String(x.hiddenFor || '').split(',').filter(String); };
+    noteGroup_(n).forEach(function (x) {
+      var h = hid(x); if (h.indexOf(me.username) < 0) h.push(me.username);
+      update_('Notes', x.id, { hiddenFor: h.join(',') });
+    });
+    return noteOut_(me);
+  }
   noteTargets_(me, n, p.scope, 'mark done').forEach(function (x) { update_('Notes', x.id, { done: true, doneAt: at, doneBy: me.name }); });
   return noteOut_(me);
 }
