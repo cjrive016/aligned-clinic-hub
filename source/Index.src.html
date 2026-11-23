@@ -76,6 +76,8 @@
   .sticky .nmeta{ font-size:12px; color:#555; }
   .sticky .nact{ display:flex; gap:6px; flex-wrap:wrap; }
   .sticky .nact button{ font-size:12px; padding:4px 9px; border-radius:7px; border:1px solid rgba(0,0,0,.15); background:rgba(255,255,255,.65); cursor:pointer; font-weight:650; }
+  .sticky .cmtflag{ position:absolute; top:-9px; left:10px; background:#E02424; color:#fff; font-size:11px; font-weight:800; padding:2px 8px; border-radius:999px; letter-spacing:.3px; box-shadow:0 1px 3px rgba(0,0,0,.25); cursor:pointer; }
+  .sticky .nact .cmtnew{ display:inline-block; min-width:18px; padding:0 5px; margin-left:4px; border-radius:999px; background:#E02424; color:#fff; font-size:11px; font-weight:800; line-height:18px; text-align:center; }
   .sticky .newflag{ position:absolute; top:-9px; right:10px; background:var(--flag); color:#fff; font-size:11px; font-weight:800; padding:2px 8px; border-radius:999px; letter-spacing:.4px; }
   .sticky.isdone{ opacity:.8; transform:none; }
   .sticky.isdel{ opacity:.7; transform:none; filter:grayscale(.5); }
@@ -1133,7 +1135,7 @@ function markNotesSeen(){
   clearTimeout(seenTimer);
   seenTimer = setTimeout(async () => { try { const r = await call('noteSeen', {}); if(r){ applyNotes(r); } } catch(e){} }, 4000);
 }
-function applyNotes(r){ if(!r) return; D.notes = r.notes; D.noteComments = r.noteComments || []; if(ui.tab === 'notes') renderNotes(); else renderNotesBadges(); }
+function applyNotes(r){ if(!r) return; D.notes = r.notes; D.noteComments = r.noteComments || []; if(r.noteReads) D.noteReads = r.noteReads; if(ui.tab === 'notes') renderNotes(); else renderNotesBadges(); }
 function renderNotesBadges(){
   // open notes on your wall keep counting until they are marked Done (just looking doesn't clear them)
   // only notes other people left on YOUR wall count; notes you left for others never add to the number
@@ -1246,7 +1248,7 @@ function renderNotes(){
   const allDeleted = n => notes.filter(x => noteKey(x) === noteKey(n)).every(x => x.deleted);
   const sentKeys = {};
   const sentList = dedupe(notes.filter(n => n.fromUser === me && noteWalls(n).some(w => w !== me) && !hiddenForMe(n) && !myOpenCopy(n) && !allDeleted(n))
-    .sort((a,b) => noteArchived(a) - noteArchived(b)));
+    .sort((a,b) => (unreadComments(b) ? 1 : 0) - (unreadComments(a) ? 1 : 0) || noteArchived(a) - noteArchived(b)));
   sentList.forEach(n => { sentKeys[noteKey(n)] = 1; });
   // archive: copies I took off my own wall, plus notes that are finished on every wall
   const allClosed = n => notes.filter(x => noteKey(x) === noteKey(n)).every(noteArchived);
@@ -1286,6 +1288,7 @@ function renderNotes(){
     const adds = all.filter(c => c.kind === 'addition'), cs = all.filter(c => c.kind !== 'addition');
     const isNew = !arch && ((section !== 'sent' && ui.noteView === 'mine' && n.wall === me && !n.seenAt) || (section === 'sent' && n.fromUser === me && n.authorFlag));
     const newLabel = cs.some(c => c.byUser !== me) ? 'NEW REPLY' : 'NEW';
+    const unread = unreadComments(n);
     const id = esc(n.id);
     let acts = '';
     if(!arch){
@@ -1301,7 +1304,8 @@ function renderNotes(){
     }
     return '<div class="sticky ' + esc(n.color || 'yellow') + (n.deleted ? ' isdel' : n.done ? ' isdone' : '') + (n.urgent && !arch ? ' urgent' : '') + '">'
       + (n.urgent ? '<div class="urgenttag">🚨 URGENT' + (n.wall === me && !n.ackAt && !arch ? ' — not acknowledged' : '') + '</div>' : '')
-      + (isNew ? '<span class="newflag">' + newLabel + '</span>' : '')
+      + (unread ? '<span class="cmtflag" onclick="openChat(\'' + id + '\')" title="Open the new comments">💬 ' + unread + ' new comment' + (unread === 1 ? '' : 's') + '</span>' : '')
+      + (isNew && !unread ? '<span class="newflag">' + newLabel + '</span>' : '')
       + (arch ? '<div class="nstatus ' + (n.deleted ? 'del' : 'ok') + '">' + (n.deleted ? '🗑 Deleted by ' + esc(n.deletedBy) + ' · ' + esc(fmtDateTime(n.deletedAt)) : '✓ Completed by ' + esc(n.doneBy) + ' · ' + esc(fmtDateTime(n.doneAt))) + '</div>' : '')
       + '<div class="ntext">' + esc(n.text) + '</div>'
       + adds.map(c => '<div class="nadd">+ ' + esc(c.text) + '<small>added ' + esc(fmtDateTime(c.at)) + '</small></div>').join('')
@@ -1310,13 +1314,14 @@ function renderNotes(){
             : w === n.fromUser ? '' : c && c.seenAt ? ' <span class="wst seen" title="Seen ' + esc(fmtDateTime(c.seenAt)) + '">✓ Seen ' + esc(seenWhen(c.seenAt)) + '</span>'
             : c && c.firstSeenAt ? ' <span class="wst seen" title="Saw the note ' + esc(fmtDateTime(c.firstSeenAt)) + ', has not looked since the latest comment">✓ Seen · new reply unread</span>'
             : ' <span class="wst unseen" title="Has not opened it yet">not seen yet</span>'); }).join(', ') + '<br>' + esc(fmtDateTime(n.createdAt)) + '</div>'
-      + '<div class="nact"><button onclick="openChat(\'' + id + '\')">💬 Comments' + (cs.length ? ' (' + cs.length + ')' : '') + '</button>' + acts + '</div>'
+      + '<div class="nact"><button onclick="openChat(\'' + id + '\')">💬 Comments' + (cs.length ? ' (' + cs.length + ')' : '') + (unread ? '<span class="cmtnew">' + unread + ' new</span>' : '') + '</button>' + acts + '</div>'
       + '</div>';
   };
   let list = ui.noteView === 'mine' ? mineList : ui.noteView === 'all' ? allList : archList;
   list = list.slice().sort((a,b) => {
     const ka = ui.noteView === 'archive' ? (a.deletedAt || a.doneAt) : a.createdAt, kb = ui.noteView === 'archive' ? (b.deletedAt || b.doneAt) : b.createdAt;
     if(ui.noteView !== 'archive' && !!a.urgent !== !!b.urgent) return a.urgent ? -1 : 1;   // urgent first
+    if(ui.noteView !== 'archive' && !!unreadComments(a) !== !!unreadComments(b)) return unreadComments(a) ? -1 : 1;   // then new comments
     return ka < kb ? 1 : -1; });
   $('noteGrid').innerHTML = list.length ? list.map(n => card(n)).join('')
     : '<div class="emptymsg">' + (ui.noteView === 'mine' ? 'No sticky notes on your wall.' : ui.noteView === 'all' ? 'No open notes.' : 'Nothing in the archive yet.') + '</div>';
@@ -1380,8 +1385,21 @@ async function noteEdit(id){
 /* ---------- comments chat box ---------- */
 let chatTimer = null;
 function noteComment(id){ openChat(id); }
+/** comments from other people since I last opened this note's comments */
+function unreadComments(n){
+  const r = D.noteReads || {}, me = D.me.username;
+  const since = [r[noteKey(n)] || '', r._since || ''].sort().pop();
+  if(!since) return 0;
+  return (D.noteComments || []).filter(c => c.noteKey === noteKey(n) && c.kind !== 'addition' && c.byUser !== me && c.at > since).length;
+}
+function markChatRead(id){
+  const n = findNote(id); if(!n) return;
+  D.noteReads = D.noteReads || {}; D.noteReads[noteKey(n)] = new Date().toISOString();
+  call('noteRead', { id }).then(r => { if(r && r.noteReads) D.noteReads = r.noteReads; if(ui.tab === 'notes' && !ui.chatId) renderNotes(); }).catch(() => {});
+}
 function openChat(id){
   const n = findNote(id); if(!n) return;
+  if(unreadComments(n)) markChatRead(id);
   ui.chatId = id; modalOpen = true;
   const arch = noteArchived(n);
   $('modalRoot').innerHTML = '<div class="modal-bg" onclick="if(event.target===this) closeChat()"><div class="modal chatmodal" role="dialog" aria-modal="true">'
@@ -1396,7 +1414,8 @@ function openChat(id){
   clearInterval(chatTimer);
   chatTimer = setInterval(async () => {   // pick up replies while the chat is open
     if(!ui.chatId || document.hidden) return;
-    try { const fresh = await run('api', TOKEN, 'bootstrap', {}); D.notes = fresh.notes; D.noteComments = fresh.noteComments || []; renderChat(); } catch(e){}
+    try { const fresh = await run('api', TOKEN, 'bootstrap', {}); D.notes = fresh.notes; D.noteComments = fresh.noteComments || []; if(fresh.noteReads) D.noteReads = fresh.noteReads;
+      const cn = findNote(ui.chatId); if(cn && unreadComments(cn)) markChatRead(ui.chatId); renderChat(); } catch(e){}
   }, 15000);
 }
 function renderChat(){
@@ -1474,7 +1493,7 @@ async function sendChat(){
   if($('chatSend')){ $('chatSend').disabled = false; $('chatSend').textContent = 'Send'; }
   if(res){
     t.value = ''; t.focus(); chatClearPic();
-    D.notes = res.notes; D.noteComments = res.noteComments || [];
+    D.notes = res.notes; D.noteComments = res.noteComments || []; if(res.noteReads) D.noteReads = res.noteReads;
     renderNotes(); renderChat();
     const log = $('chatLog'); if(log) log.scrollTop = log.scrollHeight;
   }

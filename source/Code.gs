@@ -212,6 +212,7 @@ var ACTIONS = {
   noteDone:         { fn: a_noteDone_, write: true },
   noteDelete:       { fn: a_noteDelete_, write: true },
   noteSeen:         { fn: a_noteSeen_, write: true },
+  noteRead:         { fn: a_noteRead_, write: true },
   noteAck:          { fn: a_noteAck_, write: true },
   noteEdit:         { fn: a_noteEdit_, write: true },
   noteAddPeople:    { fn: a_noteAddPeople_, write: true },
@@ -267,6 +268,7 @@ function a_bootstrap_(me) {
     pricing: pricing_(),
     notes: notesList_(me).notes,
     noteComments: notesList_(me).noteComments,
+    noteReads: noteReads_(me),
     qcRetentionDays: CONFIG.QC_RETENTION_DAYS,
     cleaningRule: CLEANING_RULE,
     startDate: s.startDate || '',
@@ -904,7 +906,25 @@ function notesList_(me) {
   var comments = rows_('NoteComments').filter(function (c) { return keys[c.noteKey]; });
   return { notes: clean_(list), noteComments: clean_(comments) };
 }
-function noteOut_(me) { var o = notesList_(me); return { notes: o.notes, noteComments: o.noteComments }; }
+function noteOut_(me) { var o = notesList_(me); return { notes: o.notes, noteComments: o.noteComments, noteReads: noteReads_(me) }; }
+/** When I last opened each note's comments: { noteKey: iso, _since: iso }. Comments from others after that count as new. */
+function noteReads_(me) {
+  var props = PropertiesService.getScriptProperties(), k = 'cread_' + me.username, m = null;
+  try { m = JSON.parse(props.getProperty(k) || 'null'); } catch (e) { m = null; }
+  if (!m || typeof m !== 'object') { m = { _since: nowIso_() }; props.setProperty(k, JSON.stringify(m)); }   // start fresh: old comments aren't "new"
+  return m;
+}
+function a_noteRead_(me, p) {
+  var n = mustSeeNote_(me, p.id);
+  var m = noteReads_(me), key = noteKey_(n);
+  m[key] = nowIso_();
+  // forget notes that are gone or finished for me, so this stays small
+  var live = {};
+  rows_('Notes').forEach(function (x) { if (canSeeNote_(me, x)) live[noteKey_(x)] = true; });
+  Object.keys(m).forEach(function (kk) { if (kk !== '_since' && !live[kk]) delete m[kk]; });
+  PropertiesService.getScriptProperties().setProperty('cread_' + me.username, JSON.stringify(m));
+  return { noteReads: m };
+}
 function mustSeeNote_(me, id) {
   var n = find_('Notes', id);
   if (!n || !canSeeNote_(me, n)) throw userErr_('That note was removed. Refresh the page.');
